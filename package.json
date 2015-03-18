@@ -1,0 +1,21 @@
+{
+  "name": "buys-crawler",
+  "version": "1.0.0",
+  "description": "node.js crawle",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://git.oschina.net/gjgj821/buys-crawler.git"
+  },
+  "keywords": [
+    "crawler"
+  ],
+  "author": "gaojie",
+  "license": "mit",
+  "dependencies": {
+    "commander": "^2.7.1"
+  }
+}
