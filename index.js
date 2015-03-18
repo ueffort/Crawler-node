@@ -5,6 +5,26 @@
  */
 
 var program = require('commander');
+var crawler = require('./crawler/core.js');
+
+function daemon(){
+    var new_argv = [];
+    for(var i=1;i<process.argv.length;i++){
+        var arg = process.argv[i];
+        if(arg !='-d' && arg !='daemon') new_argv.push(process.argv[i]);
+    }
+    var d = require('child_process').spawn(process.argv[0], new_argv,{
+        detached: true,
+        stdio: ['ignore', 'ignore', 'ignore']
+    });
+    d.unref();
+    d.on('error',function(code,signal){
+        d.kill(signal);
+        cp = reqiire('child_process').spawn(process.argv[0], new_argv)
+    });
+    d.on('exit', function(code){});
+    return ;
+}
 
 /* 基本设置 */
 program
@@ -16,7 +36,10 @@ program
     .description('start one instance')
     .option('-d, --daemon', 'run in backend')
     .action(function(instance, options){
-        console.log('start '+instance);
+        if(options.d){
+            return daemon();
+        }
+        crawler(instance).start(options);
 //    }).on('--help',function(){
 //        console.log('  Examples:');
 //        console.log('');
@@ -30,7 +53,7 @@ program
     .alias('monitor')
     .option('-s, --simple <simple>', "one variable status")
     .action(function(instance, options){
-        console.log('status '+instance+':'+options.simple);
+        crawler(instance).status(options);
     });
 
 program.parse(process.argv);
