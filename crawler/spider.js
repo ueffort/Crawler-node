@@ -41,6 +41,4 @@ spider.on('pipe', function(url, meta, info){
     }
 });
 
-spider.on('');
-
 module.exports = spider;
