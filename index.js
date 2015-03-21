@@ -8,19 +8,19 @@ var program = require('commander');
 var crawler = require('./crawler/core.js');
 
 function daemon(){
-    var new_argv = [];
+    var new_arg_array = [];
     for(var i=1;i<process.argv.length;i++){
         var arg = process.argv[i];
         if(arg !='-d' && arg !='daemon') new_argv.push(process.argv[i]);
     }
-    var d = require('child_process').spawn(process.argv[0], new_argv,{
+    var d = require('child_process').spawn(process.argv[0], new_arg_array,{
         detached: true,
         stdio: ['ignore', 'ignore', 'ignore']
     });
     d.unref();
     d.on('error',function(code,signal){
         d.kill(signal);
-        cp = reqiire('child_process').spawn(process.argv[0], new_argv)
+        d = reqiire('child_process').spawn(process.argv[0], new_arg_array)
     });
     d.on('exit', function(code){});
     return ;
@@ -44,6 +44,14 @@ program
 //        console.log('  Examples:');
 //        console.log('');
 //        console.log('    $ start proxy');
+    });
+
+/* 停止实例 */
+program
+    .command('stop <instance>')
+    .description('stop one instance')
+    .action(function(instance, options){
+        crawler(instance).stop(options);
     });
 
 /* 监控实例 */

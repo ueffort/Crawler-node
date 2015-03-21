@@ -16,7 +16,9 @@
   "author": "gaojie",
   "license": "mit",
   "dependencies": {
+    "async": "^0.9.0",
     "commander": "^2.7.1",
+    "events": "^1.0.2",
     "redis": "^0.12.1",
     "underscore": "^1.8.2",
     "winston": "^0.9.0"

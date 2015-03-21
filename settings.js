@@ -1,14 +1,23 @@
-var winston = require('winston');
+//var winston = require('winston');
 
 module.exports={
     'logger': {
-        'level': 'silly'
-        'transports':[
-            new (winston.transports.Console)({level: 'silly'});
-        ]
+        console: {
+            level: 'silly',
+            colorize: true
+        }
     },
     'redis': {
         'host': '127.0.0.1',
         'port': '6379'
+    },
+    'proxy': {
+        'redis': {
+            'host': '127.0.0.1',
+            'port': '6379'
+        }
+    },
+    'scheduler': {
+
     }
 };
