@@ -2,12 +2,12 @@
  * 实例调度器，处理单个实例调度
  * 事件列表：
  *      finish_init(err):初始化完成
- *      init_queue(queue_length):初始化一个时间分片
- *      finish_queue():结束一个时间分片
+ *      finish_queue(loop):结束一个时间分片,是否自动循环抓取
  * 监听列表：
  *      start(callback): 启动
  *      stop(callback)：关闭
- *      push(url, meta):
+ *      push(url, meta):将url入队操作
+ *      init_queue(callback(queue_length))：初始化一个时间分片
  */
 
 var util = require('util');
@@ -30,34 +30,27 @@ var scheduler = function(engine, settings){
     });
     //同时开启多少个下载队列
     this.queue = async.queue(function(task, callback){
-        self.downloader.emit('download', task.url, task.meta);
-        callback();
+        self.downloader.emit('download', task.url, task.meta, callback);
     }, this.settings.parallel);
     this.queue.empty(function(){
         if(!self.instance.length){
-            self.finish_queue();
+            self.started = false;
+            //一次只能由一个实例进程进行时间片的关闭级初始化操作
+            //todo 对于抓取元素，得在最后次pipe操作后才能触发finish_queue事件
+            self.emit('finish_queue', self.settings.loop);
+        }else {
+            var url_info = self.instance.shift();
+            self.queue.push({url: url_info[0], meta: url_info[1]});
         }
-        self.download();
     });
 };
 util.inherits(scheduler, events.EventEmitter);
 
-scheduler.prototype.download = function(){
-    var url_info = this.instance.shift();
-    this.queue.push({url: url_info[0], meta: url_info[1]});
-};
-
-scheduler.prototype.init_queue = function(){
-    this.instance.init_queue();
+scheduler.on('init_queue', function(callback){
+    if(!this.instance.length) this.instance.init_queue();
     if(!this.instance.length) this.logger.error('[ INSTANCE ] instance has 0 queue length after init_queue!');
-    this.emit('init_queue', this.instance.length);
-};
-
-scheduler.prototype.finish_queue = function(){
-    if(!this.start) return ;
-    this.emit('finish_queue');
-    this.init_queue();
-};
+    callback(this.instance.length);
+});
 
 scheduler.on('stop',function(callback){
     this.queue.kill();
@@ -70,7 +63,6 @@ scheduler.on('start',function(callback){
     }
     this.queue.statted = true;
     this.started = true;
-    this.download();
     callback();
 });
 

@@ -35,7 +35,8 @@ spider.prototype.topDomain = function(url){
 spider.on('spider', function(url, meta, callback){
     var spider_name = meta['spider'];
     if(!spider_name in this.spider_list){
-        this.spider_list[spider_name] = require('../'+this.engine.instance_name+'/spider/'+spider_name+'.js')(this);
+        var spider_path = this.settings.path ? this.settings.path : this.engine.instance_name+'/spider';
+        this.spider_list[spider_name] = require('../'+spider_path+'/'+spider_name+'.js')(this);
     }
     var spider = this.spider_list[spider_name];
     callback(spider.js, function($){

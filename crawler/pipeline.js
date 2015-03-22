@@ -1,7 +1,7 @@
 /**
  * 管道处理
  * 事件列表：
- *      finish_pipe(err):处理完一个管道请求
+ *      finish_pipe(err, url):处理完一个管道请求
  *      finish_init(err):初始化完成
  * 监听列表：
  *      pipe(url, meta, info): 接收一个管道请求
@@ -17,7 +17,8 @@ var pipeline = function(engine, settings){
     var self = this;
     async.map(this.settings, function(pipe_name, callback){
         //todo 判断管道文件是否存在
-        var pipe = require('../'+self.engine.instance_name+'/pipe/'+pipe_name+'.js')(self.engine.settings);
+        var pipe_path = self.settings.path ? self.settings.path : self.engine.instance_name+'/pipe';
+        var pipe = require('../'+pipe_path+'/'+pipe_name+'.js')(self.engine.settings);
         callback(null, pipe);
     },function(err, result){
         self.pipe_list = result;
@@ -32,7 +33,7 @@ pipeline.on('pipe', function(url, meta, info){
         info = pipe(info);
         callback(!info ? true : null, info);
     },function(err, result){
-        self.emit('finish_pipe', err);
+        self.emit('finish_pipe', err, url);
     });
 });
 

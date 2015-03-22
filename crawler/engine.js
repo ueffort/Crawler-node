@@ -65,6 +65,9 @@ engine.prototype.init_process = function(){
     if(this.finish_init == this.need_init) this.emit('finish_init');
 };
 
+//避免日后的扩展需求，对核心对象都通过异步调用
+//内部尽可能的对各个对象实现解偶
+
 engine.on('instance', function(callback){
     return callback(this.instance);
 });
