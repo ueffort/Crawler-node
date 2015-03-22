@@ -7,7 +7,7 @@
  * 监听列表：
  *      spider(url, meta, callback(js, parse_function($))): 获取一个蜘蛛实例
  *      pipe(info):进行管道处理,
- *      queue(url, meta):进行入队处理
+ *      url(url, meta):进行url入队处理
  */
 
 var util = require('util');
@@ -49,7 +49,7 @@ spider.on('pipe', function(info){
     });
 });
 
-spider.on('queue', function(url, meta){
+spider.on('url', function(url, meta){
     //根据url获取domain，用于下载器中获取对应的spider
     if(!meta['spider']) meta['spider'] = url;
     this.engine.emit('scheduler', function(scheduler){

@@ -8,7 +8,7 @@ var spider = function(factory){
     return {
         js: false,
         index: function(url , meta, $){
-            factory.emit('queue', url, meta);
+            factory.emit('url', url, meta);
             factory.emit('pipe', info);
         }
     }

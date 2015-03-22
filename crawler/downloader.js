@@ -9,7 +9,6 @@
 var util = require('util');
 var events = require('events');
 var async = require('async');
-var _ = require('underscore')._;
 
 var downloader = function(engine, settings){
     events.EventEmitter.call(this);

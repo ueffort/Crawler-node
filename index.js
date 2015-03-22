@@ -57,10 +57,33 @@ program
 program
     .command('status [instance]')
     .description('show status for instance running')
-    .alias('monitor')
     .option('-s, --simple <simple>', "one variable status")
     .action(function(instance, options){
         crawler(instance).status(options);
+    });
+
+/* web统计实例 */
+program
+    .command('monitor')
+    .description('open web console to status crawler')
+    .option('-d, --daemon', 'run in backend')
+    .action(function(options){
+        if(options.d){
+            return daemon();
+        }
+        require('./monitor').master();
+    });
+
+/* 启动代理端口，用于转发实例命令 */
+program
+    .command('translate')
+    .description('translate instance on this host')
+    .option('-d, --daemon', 'run in backend')
+    .action(function(options){
+        if(options.d){
+            return daemon();
+        }
+        require('./monitor').slave();
     });
 
 program.parse(process.argv);

@@ -23,7 +23,6 @@ var scheduler = function(engine, settings){
     this.engine.on('finish_init', function(){
         self.engine.emit('downloader', function(downloader){
             self.downloader = downloader;
-            self.downloader.on('finish_download', self.download);
         });
         self.engine.emit('instance', function(instance){
             self.instance = instance;

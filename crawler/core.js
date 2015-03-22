@@ -19,6 +19,43 @@ try{
     process.exit(1);
 }
 
+/**
+ * redis格式：统计信息
+ * {
+ *  $instance_name:{//每个instance拥有一个hkey,哈希表
+ *      download:下载的总次数
+ *      pipe:抓取信息总次数
+ *      current_download:当前时间分片下载的次数
+ *      current_start_time:当前时间分片的启动时间
+ *      current_run_time:当前分片的实际运行时间
+ *      init_time:第一次运行时间
+ *      times:总运行次数（一个分片算一次）
+ *
+ *  }
+ *  $instance_time:[//每次分片的运行情况，列表
+ *      {//json字符串
+ *          download:下载的总次数
+ *          start:启动时间
+ *          run:运行时间
+ *          pipe:抓取信息的总次数
+ *      }
+ *  ]
+ *  $instance_$process:{//每个运行中的process都拥有一个hkey，哈希表，设定有效期
+ *      status:0,1//当前进程状态
+ *      start:启动时间
+ *      download:该进程的下载次数
+ *      pipe:该进程的抓取信息次数
+ *      queue:当前的下载队列状态，几个在运行中
+ *
+ *  }
+ *  proxy:(//总的代理列表，有序集合
+ *      ip:port score://根据score的正序获取一个代理，每调用一次则减少部分分值，如果失败则降低该代理的分值，如果成功则提高该代理的分值，对于分值为负数的则移除
+ *  )
+ * }
+ * @param instance_name
+ * @returns {{start: Function, stop: Function, status: Function}}
+ */
+
 var core = function(instance_name){
     this.instance_name = instance_name;
     this.start_seconds = new Date().getMilliseconds();
@@ -70,14 +107,8 @@ var core = function(instance_name){
         },
         status:function(options){
             var self = this;
-            store.get('status_'+self.instance_name, function(error, value){
-                var s = null;
-                if(!value){
-                    s = 'is not running';
-                }else{
-                    s = 'start '+new Date(self.start_seconds).toLocaleString();
-                }
-                console.log(self.instance_name+':'+s);
+            store.hget(self.instance_name, 'status', function(error, value){
+
             });
         }
     };

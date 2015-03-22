@@ -10,7 +10,6 @@
 var util = require('util');
 var events = require('events');
 var async = require('async');
-var _ = require('underscore')._;
 
 var pipeline = function(engine, settings){
     this.engine = engine;
