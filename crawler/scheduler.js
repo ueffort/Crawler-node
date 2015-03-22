@@ -16,7 +16,7 @@ var async = require('async');
 
 var scheduler = function(engine, settings){
     events.EventEmitter.call(this);
-    this.start = false;
+    this.started = false;
     this.engine = engine;
     this.settings = settings;
     var self = this;
@@ -29,17 +29,23 @@ var scheduler = function(engine, settings){
             self.instance = instance;
         });
     });
+    //同时开启多少个下载队列
+    this.queue = async.queue(function(task, callback){
+        self.downloader.emit('download', task.url, task.meta);
+        callback();
+    }, this.settings.parallel);
+    this.queue.empty(function(){
+        if(!self.instance.length){
+            self.finish_queue();
+        }
+        self.download();
+    });
 };
 util.inherits(scheduler, events.EventEmitter);
 
 scheduler.prototype.download = function(){
-    var length = this.instance.length;
-    if (!length) {
-        this.finish_queue();
-        this.init_queue();
-    }
     var url_info = this.instance.shift();
-    this.downloader.emit('download', url_info[0], url_info[1]);
+    this.queue.push({url: url_info[0], meta: url_info[1]});
 };
 
 scheduler.prototype.init_queue = function(){
@@ -55,16 +61,16 @@ scheduler.prototype.finish_queue = function(){
 };
 
 scheduler.on('stop',function(callback){
-    this.instance.stop();
+    this.queue.kill();
     callback();
 });
 
 scheduler.on('start',function(callback){
-    if (this.start) {
-        this.logger.warn('[ EVENT ] scheduler is running! not need start again!');
-        return ;
+    if (this.started) {
+        return this.logger.warn('[ EVENT ] scheduler is running! not need start again!');
     }
-    this.start = true;
+    this.queue.statted = true;
+    this.started = true;
     this.download();
     callback();
 });

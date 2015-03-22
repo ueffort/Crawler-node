@@ -14,10 +14,11 @@ module.exports={
     'proxy': {
         'redis': {
             'host': '127.0.0.1',
-            'port': '6379'
+            'port': '6379',
+            'hash_key': 'proxy'
         }
     },
     'scheduler': {
-
+        'parallel': 4
     }
 };

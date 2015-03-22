@@ -1,5 +1,8 @@
 /**
  * 蜘蛛工厂，调度链接所需的蜘蛛
+ * 函数列表：
+ *      parseUrl(present, target):根据当前url返回页面中的url完整格式
+ *      topDomain(url):返回url的顶级域名
  * 事件列表：
  * 监听列表：
  *      spider(url, meta, callback(js, parse_function($))): 获取一个蜘蛛实例
@@ -17,6 +20,16 @@ var spider = function(engine, settings){
     this.engine = engine;
     this.settings = settings;
     this.spider_list = {};
+};
+
+//根据当前url返回页面中url的完整格式
+spider.prototype.parseUrl = function(present, target){
+
+};
+
+//返回当前链接的顶级域名
+spider.prototype.topDomain = function(url){
+
 };
 
 spider.on('spider', function(url, meta, callback){

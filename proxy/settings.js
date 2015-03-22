@@ -2,5 +2,8 @@ module.exports={
     downloader:{
         proxy: false
     },
-    pip: []
-}
+    pipe: [],
+    start_url: [
+        ['proxy.com.ru', {type: 'index'}]
+    ]
+};
