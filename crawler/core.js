@@ -116,7 +116,8 @@ var core = function(instance_name){
                     //设定退出逻辑
                     process.on('exit',function(){
                         scheduler.emit('stop',function(){
-                            self.store.delete('status_'+self.instance_name);
+                            //删除进程信息
+                            self.store.del(self.process_name);
                             self.store.end();
                         });
                     });
