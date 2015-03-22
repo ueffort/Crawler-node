@@ -18,7 +18,7 @@ var pipeline = function(engine, settings){
     var self = this;
     async.map(this.settings, function(pipe_name, callback){
         //todo 判断管道文件是否存在
-        var pipe = require('../'+self.engine.instance_name+'/pipeline/'+pipe_name+'.js')(self.engine.settings);
+        var pipe = require('../'+self.engine.instance_name+'/pipe/'+pipe_name+'.js')(self.engine.settings);
         callback(null, pipe);
     },function(err, result){
         self.pipe_list = result;

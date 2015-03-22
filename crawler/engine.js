@@ -28,25 +28,25 @@ var engine = function(crawler){
         //instance
         try{
             self.instance_settings = require('../'+self.instance_name+'/settings.js');
-            self.instance = require('../'+self.instance_name+'/index.js')(engine);
+            self.instance = new (require('../'+self.instance_name+'/index.js'))(engine);
         }catch(e){
             self.crawler.logger.error('[ CONFIG ] instance(%s) not exists', self.instance_name);
         }
         if (!self.instance_settings) self.crawler.logger.error('[ CONFIG ] instance(%s) settings is null', self.instance_name);
         self.settings = _.extend(self.instance_settings, self.crawler.settings);
         winton.loggers.add(self.instance_name, self.settings.logger);
-        self.logger = winton.loggers.get(instance);
+        self.logger = winton.loggers.get(self.instance);
     },function(){
-        self.scheduler = require('./scheduler.js')(self, self.settings.scheduler);
+        self.scheduler = new (require('./scheduler.js'))(self, self.settings.scheduler);
     },function(){
-        self.downloader = require('./downloader.js')(self, self.settings.downloader);
+        self.downloader = new (require('./downloader.js'))(self, self.settings.downloader);
     },function(){
-        self.proxy = require('./proxy.js')(self, self.settings.proxy);
+        self.proxy = new (require('./proxy.js'))(self, self.settings.proxy);
         listen_init(self, self.proxy);
     },function(){
-        self.spider = require('./spider.js')(self, self.settings.spider);
+        self.spider = new (require('./spider.js'))(self, self.settings.spider);
     },function(){
-        self.pipeline = require('./pipeline.js')(self, self.settings.pipeline);
+        self.pipeline = new (require('./pipeline.js'))(self, self.settings.pipeline);
         listen_init(self, self.proxy);
     }],function(err, result){
         self.init_process();

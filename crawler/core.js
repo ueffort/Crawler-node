@@ -25,7 +25,7 @@ var core = function(instance_name){
     this.logger = logger;
     this.store = store;
     this.settings = settings;
-    var engine = require('./engine.js')(this);
+    var engine = new (require('./engine.js'))(this);
     return {
         start:function(options){
             var self = this;
@@ -81,6 +81,6 @@ var core = function(instance_name){
             });
         }
     };
-}
+};
 
 module.exports = core;

@@ -24,19 +24,18 @@ var downloader = function(engine, settings){
 util.inherits(downloader, events.EventEmitter);
 
 downloader.prototype.download = function(url, callback){
-   callback();
+
+    callback($);
 };
 
 downloader.on('download', function(url, meta){
     var self = this;
     this.engine.emit('spider', function(spider){
-        spider.emit('spider', url, meta, function(spider){
-            if(spider.js){
+        spider.emit('spider', url, meta, function(js, parse_function){
+            if(js){
 
             }else{
-                self.download(url, function($){
-                    spider(url, meta, $);
-                })
+                self.download(url, parse_function);
             }
         });
     })

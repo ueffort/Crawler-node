@@ -1,7 +1,7 @@
 #!/usr/local/bin/node
 
 /**
- * 全局控制器
+ * 命令行解析器
  */
 
 var program = require('commander');
@@ -20,15 +20,14 @@ function daemon(){
     d.unref();
     d.on('error',function(code,signal){
         d.kill(signal);
-        d = reqiire('child_process').spawn(process.argv[0], new_arg_array)
+        d = require('child_process').spawn(process.argv[0], new_arg_array)
     });
     d.on('exit', function(code){});
-    return ;
 }
 
 /* 基本设置 */
 program
-    .version('1.0.0')
+    .version('1.0.0');
 
 /* 启动实例 */
 program
