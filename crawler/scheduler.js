@@ -4,17 +4,17 @@
  *      finish_init(err):初始化完成
  *      finish_queue(loop):结束一个时间分片,是否自动循环抓取
  * 监听列表：
- *      start(callback): 启动
- *      stop(callback)：关闭
+ *      start(callback(err)): 启动
+ *      stop(callback(err))：关闭
  *      push(url, meta):将url入队操作
- *      init_queue(callback(queue_length))：初始化一个时间分片
+ *      init_queue(callback(err, queue_length))：初始化一个时间分片
  */
 
 var util = require('util');
 var events = require('events');
 var async = require('async');
 
-var scheduler = function(engine, settings){
+var scheduler = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.started = false;
     this.engine = engine;
@@ -43,18 +43,19 @@ var scheduler = function(engine, settings){
             self.queue.push({url: url_info[0], meta: url_info[1]});
         }
     });
+    init_callback(null, this);
 };
 util.inherits(scheduler, events.EventEmitter);
 
 scheduler.on('init_queue', function(callback){
     if(!this.instance.length) this.instance.init_queue();
     if(!this.instance.length) this.logger.error('[ INSTANCE ] instance has 0 queue length after init_queue!');
-    callback(this.instance.length);
+    callback(null, this.instance.length);
 });
 
 scheduler.on('stop',function(callback){
     this.queue.kill();
-    callback();
+    callback(null);
 });
 
 scheduler.on('start',function(callback){
@@ -63,7 +64,7 @@ scheduler.on('start',function(callback){
     }
     this.queue.statted = true;
     this.started = true;
-    callback();
+    callback(null);
 });
 
 scheduler.on('push', function(url, meta){

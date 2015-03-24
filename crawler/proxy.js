@@ -3,7 +3,7 @@
  * 事件列表：
  *      warning(this.length):如果代理列表有限，则触发报警
  * 监听列表：
- *      proxy(callback(host,port)): 获取一个代理信息
+ *      proxy(callback(err, host,port)): 获取一个代理信息
  *      timeout():代理超时，降低该代理的权重
  */
 
@@ -12,7 +12,7 @@ var events = require('events');
 var async = require('async');
 var redis = require('redis');
 
-var proxy = function(engine, settings){
+var proxy = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.engine = engine;
     this.settings = settings;
@@ -21,8 +21,15 @@ var proxy = function(engine, settings){
     var self = this;
     this.redis.zcount(this.key, function(err, result){
         self.length = result;
+        warning();
+        init_callback(err, self);
     });
 };
+
+//发送告警
+function warning(object){
+    if(object.length < object.settings.waring_num) object.emit('warning', object.length);
+}
 
 proxy.prototype.parseProxy = function(info){
     info = info.split(':');
@@ -34,13 +41,14 @@ proxy.on('proxy', function(callback){
     this.redis.zrange(this.key, 0, 1, function(err, result){
         var info = self.parseProxy(result[0]);
         self.redis.zincrby(self.key, result[0], -100);
-        callback(result.host, result.port);
+        callback(err, result.host, result.port);
     });
+    warning(this);
 });
 
 proxy.on('timeout', function(){
     var self = this;
-    if(this.length < this.settings.waring_num) this.emit('warning', this.length);
+    warning(this);
 });
 
 module.exports = proxy;

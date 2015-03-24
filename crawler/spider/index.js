@@ -1,13 +1,14 @@
 /**
  * spider的结构
  * @param factory
- * @returns {{js: boolean, index: Function}}
+ * @returns {}
  */
 
-var spider = function(factory){
+var spider;
+spider = function (factory) {
     return {
-        js: false,
-        index: function(url , meta, $){
+        download: {},
+        index: function (url, meta, $) {
             factory.emit('url', url, meta);
             factory.emit('pipe', info);
         }

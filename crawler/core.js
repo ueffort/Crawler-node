@@ -87,7 +87,7 @@ var core = function(instance_name){
                         callback(null, scheduler);
                     });
                     engine.emit('downloader', function(downloader){
-                        downloader.on('finish_download', function(url){
+                        downloader.on('finish_download', function(error, url){
                             self.store.hincrby(self.instance_name, 'download', 1);
                             self.store.hincrby(self.process_name, 'download', 1);
                             self.store.hincrby(self.instance_name, 'current_pipe', 1);
@@ -95,8 +95,8 @@ var core = function(instance_name){
                         });
                     });
                     engine.emit('pipeline', function(pipeline){
-                        pipeline.on('finish_pipeline', function(error, url){
-                            if(error){
+                        pipeline.on('finish_pipeline', function(err, url){
+                            if(err){
                                 engine.logger.warn('[ PIPELINE ] %s', url);
                             }else{
                                 self.store.hincrby(self.instance_name, 'pipe', 1);
@@ -109,13 +109,16 @@ var core = function(instance_name){
                 },
                 //获取scheduler
                 function(scheduler, callback) {
-                    scheduler.emit('start',function(){
+                    scheduler.emit('start',function(err){
+                        if(err){
+                            engine.logger.warn('[ PIPELINE ] %s', err);
+                        }
                         self.store.hset(self.process_name, 'stats', 1);
                         self.stats = 1;
                     });
                     //设定退出逻辑
                     process.on('exit',function(){
-                        scheduler.emit('stop',function(){
+                        scheduler.emit('stop',function(err){
                             //删除进程信息
                             self.store.del(self.process_name);
                             self.store.end();
@@ -170,8 +173,8 @@ var core = function(instance_name){
                     self.store.hset(self.instance_name, 'current_init_length', 0);
                     engine.emit('scheduler', function(scheduler){
                         if(scheduler.settings.loop) return callback(2, process_list);//中断async
-                        scheduler.emit('init_queue', function(length){
-                            callback(null, process_list, length);
+                        scheduler.emit('init_queue', function(err, length){
+                            callback(err, process_list, length);
                         });
                     });
 

@@ -4,9 +4,10 @@
  */
 
 var spider = function(factory){
-    var factory = '';
     return {
-        js: false,
+        download:{
+
+        },
         index: function(url , meta, $){
             var info = $('title');
             factory.emit('pipe', url, meta, info);

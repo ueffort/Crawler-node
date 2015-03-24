@@ -2,7 +2,6 @@
  * 管道处理
  * 事件列表：
  *      finish_pipe(err, url):处理完一个管道请求
- *      finish_init(err):初始化完成
  * 监听列表：
  *      pipe(url, meta, info): 接收一个管道请求
  */
@@ -11,7 +10,7 @@ var util = require('util');
 var events = require('events');
 var async = require('async');
 
-var pipeline = function(engine, settings){
+var pipeline = function(engine, settings, init_callback){
     this.engine = engine;
     this.settings = settings;
     var self = this;
@@ -22,7 +21,7 @@ var pipeline = function(engine, settings){
         callback(null, pipe);
     },function(err, result){
         self.pipe_list = result;
-        self.emit('finish_init', err);
+        init_callback(err, self);
     });
 };
 
