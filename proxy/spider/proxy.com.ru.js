@@ -5,8 +5,8 @@
 
 var spider = function(factory){
     return {
-        download:{
-
+        download: function(url, meta){
+            return {};
         },
         index: function(url , meta, $){
             var info = $('title');

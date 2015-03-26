@@ -55,4 +55,20 @@
     * queue.js:每个实例需要一个定制供scheduler用于队列处理和初始化分片队列
     * setting.js:每个实例的配置文件
 
+# 配置说明：
+1. 配置一共分为3层:
+    * 全局实例配置，settings.js
+    * 实例配置，$instance/settings.js
+    * 蜘蛛的下载配置，每个蜘蛛可以根据当前抓取链接动态传递配置信息，$instance/spider/spider.js
+      ```
+      download: function(url, meta){
+            return {};
+      }
+      ```
+2. 实例配置会覆盖全局实例配置
+3. 全局配置，实例配置：
+    * 全局配置节点：`scheduler`,`downloader`,`proxy`,`logger`,`redis`：`redis`和实例无关
+    * 蜘蛛下载配置，同`downloader`节点
+    * 配置项在不同对象内部default_settings
+    * 实例配置特殊项：`start_url`,`pipeline`,`spider`
 

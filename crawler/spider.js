@@ -5,9 +5,9 @@
  *      topDomain(url):返回url的顶级域名
  * 事件列表：
  * 监听列表：
- *      spider(url, meta, callback(js, spider_function($))): 获取一个蜘蛛实例
+ *      spider(link, meta, callback(err, settings, spider_function($))): 获取一个蜘蛛实例
  *      pipe(info):进行管道处理,
- *      url(url, meta):进行url入队处理
+ *      url(link, meta):进行url入队处理
  * meta格式：
  * {
  *
@@ -17,21 +17,27 @@
 var util = require('util');
 var events = require('events');
 var async = require('async');
-var url =  require("url");
+var urlUtil =  require("url");
 var _ = require('underscore')._;
+
+var default_settings = {
+    path:false//蜘蛛文件所在的路径，默认在实例的spider下
+};
 
 var spider = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.engine = engine;
-    this.settings = settings;
+    this.settings = _.extend(default_settings, settings);
     this.spider_list = {};
     init_callback(null, this);
 };
 
 //根据当前url返回页面中url的完整格式
 spider.prototype.absoluteLink = function(present, target){
+    return urlUtil.resolve(present, target);
     //如果是绝对链接，直接返回
-    if(target.indexOf('http')==0) return target;
+    if(target.indexOf('http')==0)
+        return target;
     var target_obj = url.parse(target);
     var present_obj = url.parse(present);
     //根路径
@@ -52,9 +58,22 @@ spider.prototype.absoluteLink = function(present, target){
 
 //返回当前链接的顶级域名
 spider.prototype.topDomain = function(domain){
-    var arr = domain.split('.');
-    if(arr.length<=2) return domain;
-    else return arr.slice(1).join('.');
+    for(var b = domain.split('.'),
+            c = /com|edu|gov|int|mil|net|org|biz|info|pro|name|museum|coop|aero|xxx|idv/,
+            d = b.length - 1,
+            f= b.length - 1,
+            e = 0;
+    d > -1;
+    d--){
+       if (c.test(b[d])){
+           f = d;
+           break;
+       } else {
+           /\d+/.test(b[d]) && e++;
+       }
+    }
+    b.length == e && (f = 1);
+    return b.slice(f - 1).join('.');
 };
 
 spider.on('spider', function(link, meta, callback){
@@ -64,13 +83,13 @@ spider.on('spider', function(link, meta, callback){
         this.spider_list[spider_name] = require('../'+spider_path+'/'+spider_name+'.js')(this);
     }
     var spider = this.spider_list[spider_name];
-    callback(spider.download, function($){
+    callback(null, spider.download(link, meta), function($){
         spider[meta['type']](link, meta, $);
     });
 });
 
 spider.on('pipe', function(info){
-    this.engine.emit('pipeline', function(pipeline){
+    this.engine.emit('pipeline', function(err, pipeline){
         pipeline.emit('pipe', info);
     });
 });
@@ -78,7 +97,7 @@ spider.on('pipe', function(info){
 spider.on('url', function(link, meta){
     //根据url获取domain，用于下载器中获取对应的spider
     if(!meta['spider']) meta['spider'] = this.topDomain(url.parse(link).hostname);
-    this.engine.emit('scheduler', function(scheduler){
+    this.engine.emit('scheduler', function(err, scheduler){
         scheduler.emit(link, meta);
     });
 });

@@ -77,16 +77,12 @@ var core = function(instance_name){
             async.waterfall([
                 //监听初始化事件
                 function(callback) {
-                    engine.on('finish_init',function(){
-                        callback(null);
-                    });
+                    engine.on('finish_init', callback);
                 },
                 //初始化完毕
                 function(callback) {
-                    engine.emit('scheduler', function(scheduler){
-                        callback(null, scheduler);
-                    });
-                    engine.emit('downloader', function(downloader){
+                    engine.emit('scheduler', callback);
+                    engine.emit('downloader', function(err, downloader){
                         downloader.on('finish_download', function(error, url){
                             self.store.hincrby(self.instance_name, 'download', 1);
                             self.store.hincrby(self.process_name, 'download', 1);
@@ -94,7 +90,7 @@ var core = function(instance_name){
                             engine.logger.info('[ DOWNLOAD ] %s', url);
                         });
                     });
-                    engine.emit('pipeline', function(pipeline){
+                    engine.emit('pipeline', function(err, pipeline){
                         pipeline.on('finish_pipeline', function(err, url){
                             if(err){
                                 engine.logger.warn('[ PIPELINE ] %s', url);
@@ -124,9 +120,7 @@ var core = function(instance_name){
                             self.store.end();
                         });
                     });
-                    scheduler.on('finish_queue', function(loop){
-                        callback(null);
-                    });
+                    scheduler.on('finish_queue', callback);
                 },
                 //队列执行为空
                 function(callback){
@@ -171,7 +165,7 @@ var core = function(instance_name){
                     self.store.hset(self.instance_name, 'current_start_time', 0);
                     self.store.hset(self.instance_name, 'current_run_time', 0);
                     self.store.hset(self.instance_name, 'current_init_length', 0);
-                    engine.emit('scheduler', function(scheduler){
+                    engine.emit('scheduler', function(err, scheduler){
                         if(scheduler.settings.loop) return callback(2, process_list);//中断async
                         scheduler.emit('init_queue', function(err, length){
                             callback(err, process_list, length);
@@ -215,7 +209,7 @@ var core = function(instance_name){
                 if(self.stats == 1) self.store.hincrby(self.instance_name, 'current_run_seconds', 1);
                 self.store.hget(self.process_name, 'stats', function(error, result){
                     if(result == 6){//可恢复状态
-                        self.engine.emit('scheduler', function(scheduler){
+                        self.engine.emit('scheduler', function(err, scheduler){
                             scheduler.emit('start', function(){
                                 self.store.hset(self.process_name, 'stats', 1);
                                 self.stats = 1;
@@ -225,7 +219,7 @@ var core = function(instance_name){
                         self.engine.logger('[ SCHEDULER ] stats is 2, need close, auto exit');
                     }
                 });
-                self.engine.emit('scheduler', function(scheduler){
+                self.engine.emit('scheduler', function(err, scheduler){
                     self.store.hset(self.process_name, 'queue', scheduler.queue.running());
                 });
                 self.store.hset(self.process_name, 'last_heart_time', new Date().getMilliseconds());
