@@ -51,16 +51,24 @@ var engine = function(crawler){
     events.EventEmitter.call(this);
     this.crawler = crawler;
     this.instance_name = crawler.instance_name;
-    crawler.logger.silly('[ ENGINE ] init');
+    this.init = false;
     var self = this;
-    async.series(
-        {
+
+};
+util.inherits(engine, events.EventEmitter);
+
+//外部触发初始化，保证能先进行事件监听
+engine.prototype.init = function(){
+    if(this.init) return ;
+    this.crawler.logger.silly('[ ENGINE ] init');
+    var self = this;
+    async.series({
             instance: function(callback){
                 try{
                     var instance_settings = require('../'+self.instance_name+'/settings.js');
                     var instance = new (require('../'+self.instance_name+'/index.js'))(engine);
                 }catch(e){
-                    self.crawler.logger.error('[ CONFIG ] instance(%s) not exists', self.instance_name);
+                    self.crawler.logger.error('[ CONFIG ] instance(%s) init error', self.instance_name);
                     callback(e);
                 }
                 if (!instance_settings) callback('[ CONFIG ] instance(%s) settings is null');
@@ -101,7 +109,7 @@ var engine = function(crawler){
         }
     );
 };
-util.inherits(engine, events.EventEmitter);
+
 
 //避免日后的扩展需求，对核心对象都通过异步调用
 //内部尽可能的对各个对象实现解偶

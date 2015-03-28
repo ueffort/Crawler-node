@@ -106,26 +106,24 @@ function finish_queue_init(self, scheduler, callback){
                 },function(err){
                     if(err) callback(err);
                 });
-                if(scheduler.settings.loop) return callback(self.engine.error.CORE_NO_LOOP, process_list);//中断async
-                //单个进程执行初始化队列操作
-                scheduler.emit('init_queue', function(err, length){
-                    self.store.hset(self.instance_name, 'current_init_length', length);
-                    self.store.hset(self.instance_name, 'current_start_time', new Date().getMilliseconds());
-                    for(var i in process_list){
-                        //恢复所有进程的状态
-                        self.store.hset(process_list[i], 'stats', 6);
-                    }
-                    change_process_stats(self, 6);
-                    callback(null);
-                });
+            });
+            if(scheduler.settings.loop) return callback(self.engine.error.CORE_NO_LOOP, process_list);//中断async
+            //单个进程执行初始化队列操作
+            scheduler.emit('init_queue', function(err, length){
+                self.store.hset(self.instance_name, 'current_init_length', length);
+                self.store.hset(self.instance_name, 'current_start_time', new Date().getMilliseconds());
+                for(var i in process_list){
+                    //恢复所有进程的状态
+                    self.store.hset(process_list[i], 'stats', 6);
+                }
+                change_process_stats(self, 6);
+                callback(null);
             });
         });
     });
 }
 
-function start(self, option){
-    self.host_info = os.hostname+':'+process.pid;
-    self.process_name = self.instance_name+'_'+ crypto.createHash('md5').update(self.host_info).digest('hex').slice(0,5);
+function event_init(self, option){
     //组件初始化操作
     async.waterfall([
         //监听初始化事件
@@ -137,6 +135,8 @@ function start(self, option){
                     self.engine.emit('downloader', callback);
                 }
             });
+            //绑定事件后初始化
+            self.engine.init();
         },
         //初始化完毕
         function(downloader, callback) {
@@ -219,38 +219,6 @@ function start(self, option){
             process.exit();
         }
     });
-    //开始进程信息初始化
-    self.store.exists(self.instance_name, function(error, result){
-        if(error){
-            self.store.hset(self.instance_name, 'init_time', self.start_time);
-        }
-    });
-    self.store.hset(self.process_name, 'stats', 0);
-    self.store.hset(self.process_name, 'start_time', self.start_time);
-    self.store.hset(self.process_name, 'host_info', self.host_info);
-    self.store.expire(self.process_name, 300);
-    //保持redis的状态统计
-    setInterval(function(){
-        if(self.stats == 1) self.store.hincrby(self.instance_name, 'current_run_seconds', 1);
-        self.store.hget(self.process_name, 'stats', function(error, result){
-            if(result == 6){//可恢复状态
-                self.engine.emit('scheduler', function(err, scheduler){
-                    scheduler.emit('start', function(){
-                        change_process_stats(self, 1);
-                    });
-                });
-                self.engine.logger.info('[ CORE ] stats is 2, change to run');
-            }else if(result == 2){//关闭状态,手动关闭
-                self.engine.logger.info('[ CORE ] stats is 2, need close, auto exit');
-            }
-        });
-        self.engine.emit('scheduler', function(err, scheduler){
-            if(err) self.engine.logger.debug(err);
-            self.store.hset(self.process_name, 'queue', scheduler.queue.running());
-        });
-        self.store.hset(self.process_name, 'last_heart_time', new Date().getMilliseconds());
-        self.store.expire(self.process_name, 300);
-    },1000);
 }
 
 var core = function(instance_name){
@@ -265,7 +233,41 @@ var core = function(instance_name){
     var self = this;
     return {
         start:function(options){
-            start(self, options);
+            self.host_info = os.hostname+':'+process.pid;
+            self.process_name = self.instance_name+'_'+ crypto.createHash('md5').update(self.host_info).digest('hex').slice(0,5);
+            event_init(self, options);
+            //开始进程信息初始化
+            self.store.exists(self.instance_name, function(error, result){
+                if(error){
+                    self.store.hset(self.instance_name, 'init_time', self.start_time);
+                }
+            });
+            self.store.hset(self.process_name, 'stats', 0);
+            self.store.hset(self.process_name, 'start_time', self.start_time);
+            self.store.hset(self.process_name, 'host_info', self.host_info);
+            self.store.expire(self.process_name, 300);
+            //保持redis的状态统计
+            setInterval(function(){
+                if(self.stats == 1) self.store.hincrby(self.instance_name, 'current_run_seconds', 1);
+                self.store.hget(self.process_name, 'stats', function(error, result){
+                    if(result == 6){//可恢复状态
+                        self.engine.emit('scheduler', function(err, scheduler){
+                            scheduler.emit('start', function(){
+                                change_process_stats(self, 1);
+                            });
+                        });
+                        self.engine.logger.info('[ CORE ] stats is 2, change to run');
+                    }else if(result == 2){//关闭状态,手动关闭
+                        self.engine.logger.info('[ CORE ] stats is 2, need close, auto exit');
+                    }
+                });
+                self.engine.emit('scheduler', function(err, scheduler){
+                    if(err) self.engine.logger.debug(err);
+                    self.store.hset(self.process_name, 'queue', scheduler.queue.running());
+                });
+                self.store.hset(self.process_name, 'last_heart_time', new Date().getMilliseconds());
+                self.store.expire(self.process_name, 300);
+            },1000);
         },
         stop:function(options){
             var self = this;
