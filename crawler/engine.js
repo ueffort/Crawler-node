@@ -18,13 +18,40 @@ var events = require('events');
 var async = require('async');
 var winton = require('winton');
 //全局错误列表
+//每个模块的第一位错误序号不同
 var error_list = {
-   TIME_OUT: 101
+    //base error
+    CORE_ERROR: 1
+    ,CORE_WAIT_INSTANCE_PROCESS: 2
+    ,CORE_NO_LOOP: 3
+    ,ENGINE_INIT_ERROR: 611//初始化出错
+    ,ENGINE_INIT_INSTANCE_ERROR: 601
+    //scheduler error
+    ,SCHEDULER_START_ERROR: 111
+    ,SCHEDULER_END_ERROR: 112
+    ,SCHEDULER_START_AGAIN: 113
+    ,SCHEDULER_PUSH_ERROR: 114
+    ,SCHEDULER_QUEUE_ERROR: 115
+    //downloader error
+    ,DOWNLOADER_DOWNLOAD_ERROR: 211
+    ,DOWNLOADER_DEPEND_ERROR: 212
+    ,DOWNLOADER_TIME_OUT: 201//下载超时
+    //spider error
+    ,SPIDER_INIT_ERROR: 301
+    ,SPIDER_TYPE_ERROR: 302
+    ,SPIDER_NULL: 303
+    //pipeline error
+    ,PIPELINE_PIPE_INIT_ERROR: 411
+    ,PIPELINE_PIPE_EXEC_ERROR: 412
+    //proxy error
+    ,PROXY_ENOUGH: 501
+
 };
 var engine = function(crawler){
     events.EventEmitter.call(this);
     this.crawler = crawler;
     this.instance_name = crawler.instance_name;
+    crawler.logger.silly('[ ENGINE ] init');
     var self = this;
     async.series(
         {
@@ -60,10 +87,16 @@ var engine = function(crawler){
         },
         function(err, results) {
             if(err){
-                self.logger.error(err);
-                return;
+                if(!_.isNumber(err)){
+                    self.logger.debug(err);
+                    err = error_list.ENGINE_INIT_INSTANCE_ERROR;
+                }else{
+                    err = error_list.ENGINE_INIT_ERROR;
+                    self.logger.error('[ ENGINE ] engine init error:%s', err);
+                }
+            }else{
+                self.service = results;
             }
-            self.service = results;
             self.emit('finish_init', err);
         }
     );

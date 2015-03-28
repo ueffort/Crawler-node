@@ -5,12 +5,15 @@
  *      topDomain(url):返回url的顶级域名
  * 事件列表：
  * 监听列表：
- *      spider(link, meta, callback(err, settings, spider_function($))): 获取一个蜘蛛实例
+ *      spider(link, meta, callback(err, settings, spider_function(result, response))): 获取一个蜘蛛实例,object根据format判断
  *      pipe(info):进行管道处理,
  *      url(link, meta):进行url入队处理
  * meta格式：
  * {
- *
+ *  encoding：在下载中被设置，可以是下载配置传递或者页面自动解析
+ *  spider：该链接的spider，可以手动设置，否则默认为链接的顶级域名
+ *  redirect：下载重定向链接，遇到301或者302时自动设置
+ *  type：spider处理该链接的类型，需手动设置
  * }
  */
 
@@ -29,6 +32,7 @@ var spider = function(engine, settings, init_callback){
     this.engine = engine;
     this.settings = _.extend(default_settings, settings);
     this.spider_list = {};
+    engine.logger.silly('[ SPIDER ] init');
     init_callback(null, this);
 };
 
@@ -77,24 +81,41 @@ spider.prototype.topDomain = function(domain){
 };
 
 spider.on('spider', function(link, meta, callback){
+    this.engine.logger.info('[ SPIDER ] spider %s %s', link, meta);
+    var err = null;
     var spider_name = meta['spider'];
     if(!spider_name in this.spider_list){
-        var spider_path = this.settings.path ? this.settings.path : this.engine.instance_name+'/spider';
-        this.spider_list[spider_name] = require('../'+spider_path+'/'+spider_name+'.js')(this);
+        try{
+            var spider_path = this.settings.path ? this.settings.path : this.engine.instance_name+'/spider';
+            this.spider_list[spider_name] = require('../'+spider_path+'/'+spider_name+'.js')(this);
+        }catch(e){
+            this.engine.logger.debug(e);
+            this.engine.logger.error('[ SPIDER ] spider init error :%s', spider_name);
+            err = this.engine.error.SPIDER_INIT_ERROR;
+            return callback(err);
+        }
+
     }
     var spider = this.spider_list[spider_name];
-    callback(null, spider.download(link, meta), function($){
-        spider[meta['type']](link, meta, $);
+    if(_.isUndefined(spider[meta['type']])){
+        this.engine.logger.error('[ SPIDER ] %s spider have not %s type', spider_name, meta['type']);
+        err = this.engine.error.SPIDER_TYPE_ERROR;
+        return callback(err);
+    }
+    callback(err, spider.download(link, meta), function(result, response){
+        spider[meta['type']](link, meta, result, response);
     });
 });
 
 spider.on('pipe', function(info){
+    this.engine.logger.info('[ SPIDER ] pipe %s', info);
     this.engine.emit('pipeline', function(err, pipeline){
         pipeline.emit('pipe', info);
     });
 });
 
 spider.on('url', function(link, meta){
+    this.engine.logger.info('[ SPIDER ] url %s %s', link, meta);
     //根据url获取domain，用于下载器中获取对应的spider
     if(!meta['spider']) meta['spider'] = this.topDomain(url.parse(link).hostname);
     this.engine.emit('scheduler', function(err, scheduler){

@@ -36,6 +36,7 @@ var downloader = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.engine = engine;
     this.settings = _.extend(default_settings, settings);
+    engine.logger.silly('[ DOWNLOADER ] init');
     var self = this;
     this.engine.on('finish_init', function(){
         self.engine.emit('proxy', function(proxy){
@@ -96,7 +97,7 @@ var download = function(self, settings, link, meta, finish_callback){
         method: settings['method'],
         headers: headers
     };
-
+    self.engine.logger.silly('[ DOWNLOADER ] start download %s', link);
     var request = http.request(options, function(response) {
         var meta = {};
         meta['status'] = response.statusCode;
@@ -115,6 +116,7 @@ var download = function(self, settings, link, meta, finish_callback){
         });
 
         response.on('end', function () {
+            self.engine.logger.silly('[ DOWNLOADER ] end download %s', link);
             if(settings['encoding'])
                 meta['encoding'] = settings['encoding'];
             else
@@ -147,15 +149,13 @@ var download = function(self, settings, link, meta, finish_callback){
                     }
                 }
             ],function(err, result){
-                if(err){
-
-                }else
-                    finish_callback(err, result);
+                finish_callback(err, result, response);
             });
         });
     });
     request.setTimeout(settings.timeout*1000,function(){
-        finish_callback(self.engine.error.TIME_OUT);
+        self.engine.logger.error('[ DOWNLOADER ] request time out !');
+        finish_callback(self.engine.error.DOWNLOADER_TIME_OUT);
     });
 
     request.on('error', function(err) {
@@ -165,18 +165,25 @@ var download = function(self, settings, link, meta, finish_callback){
 };
 
 //完整下载完成callback函数
-var callbackDownload = function(queue_callback, spider_function, link, callback){
+var callbackDownload = function(self, queue_callback, spider_function, link, callback){
     var start_date = new Date();
-    return function(err, $){
+    return function(err, result, response){
+        if(err){
+            if(!_.isNumber(err)){
+                self.engine.logger.debug(err);
+                err = self.engine.error.DOWNLOADER_DOWNLOAD_ERROR;
+            }
+        }
         queue_callback(err, new Date() - start_date);
         self.emit('finish_download', err, link);
-        if(!err) spider_function($);
+        if(!err) spider_function(result, response);
         callback(err);
     }
 };
 
 //接收下载请求
 downloader.on('download', function(link, meta, queue_callback){
+    this.engine.logger.info('[ DOWNLOADER ] download %s %s', link, meta);
     var self = this;
     async.waterfall([
         function(callback){
@@ -195,17 +202,18 @@ downloader.on('download', function(link, meta, queue_callback){
                         host: host,
                         port: port
                     };
-                    download(self, settings, link, meta, callbackDownload(function(err, milliseconds){
+                    download(self, settings, link, meta, callbackDownload(self, function(err, milliseconds){
                         queue_callback(err, milliseconds);
                         proxy_callback(err, milliseconds);
                     }, spider_function, link, callback));
                 });
             }else
-                download(self, settings, link, meta, callbackDownload(queue_callback, spider_function, link, callback));
+                download(self, settings, link, meta, callbackDownload(self, queue_callback, spider_function, link, callback));
+            callback(null);
         }
     ], function(err){
         if(err){
-
+            queue_callback(self.engine.error.DOWNLOADER_DEPEND_ERROR);
         }
     });
 });

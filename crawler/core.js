@@ -54,15 +54,208 @@ try{
  *      host_info:运行的主机信息（hostname,pid）
  *  }
  *  proxy:(//总的代理列表，有序集合
- *      ip:port score://根据score的正序获取一个代理，每调用一次则减少部分分值，如果失败则降低该代理的分值，如果成功则提高该代理的分值，对于分值为负数的则移除
+ *      ip:port score://根据score的正序获取一个代理
  *  )
  * }
- * @param instance_name
- * @returns {{start: Function, stop: Function, status: Function}}
+ * 日志记录：
+ *      调用者判断错误，传递错误（更改为自身错误）
+ *      自身监听者及触发自身写日志
+ *
+ *      系统错误和第三方类库错误，使用debug输出错误
+ *      基本事件监听发送info日志，单个函数内的多次日志写silly
+ *
  */
+
+function change_process_stats(self, stats){
+    self.store.hset(self.process_name, 'stats', stats);
+    self.stats = stats;
+}
+
+function finish_queue_init(self, scheduler, callback){
+    change_process_stats(self, 4);
+    //获取所有进程列表
+    self.store.keys(self.process_list, function(err, process_list){
+        async.filter(process_list, function(process_name, callback){
+            if(process_name == self.process_name) return callback(false);
+            self.store.hget(process_name, 'stats', function(error, result){
+                callback(result != 4);
+            });
+        }, function(running_process){
+            //所有进程都执行完毕
+            if(running_process) return callback(self.engine.error.CORE_WAIT_INSTANCE_PROCESS, process_list);//中断async
+            //注册为初始化进程
+            change_process_stats(self, 5);
+            //获取所有单个时间分片的数据
+            async.map(['download','pipe','start_time','run_seconds','init_length'],function(item,callback){
+                self.store.hget(self.instance_name, item, function(error, result){
+                    callback(error, result);
+                });
+            },function(err, result){
+                self.store.rpush(self.instance_name+'_time',JSON.stringify({
+                    download:result[0],
+                    pipe:result[1],
+                    start_time:result[2],
+                    run_seconds:result[3],
+                    init_length:result[4],
+                    end_time:new Date().getMilliseconds()
+                }));
+                //初始化时间片信息
+                async.each(['current_download', 'current_pipe', 'current_start_time', 'current_run_time', 'current_init_length'],function(item, callback){
+                    self.store.hset(self.instance_name, item, 0);
+                    callback();
+                },function(err){
+                    if(err) callback(err);
+                });
+                if(scheduler.settings.loop) return callback(self.engine.error.CORE_NO_LOOP, process_list);//中断async
+                //单个进程执行初始化队列操作
+                scheduler.emit('init_queue', function(err, length){
+                    self.store.hset(self.instance_name, 'current_init_length', length);
+                    self.store.hset(self.instance_name, 'current_start_time', new Date().getMilliseconds());
+                    for(var i in process_list){
+                        //恢复所有进程的状态
+                        self.store.hset(process_list[i], 'stats', 6);
+                    }
+                    change_process_stats(self, 6);
+                    callback(null);
+                });
+            });
+        });
+    });
+}
+
+function start(self, option){
+    self.host_info = os.hostname+':'+process.pid;
+    self.process_name = self.instance_name+'_'+ crypto.createHash('md5').update(self.host_info).digest('hex').slice(0,5);
+    //组件初始化操作
+    async.waterfall([
+        //监听初始化事件
+        function(callback) {
+            self.engine.on('finish_init', function(err){
+                if(err){
+                    callback(err);
+                }else{
+                    self.engine.emit('downloader', callback);
+                }
+            });
+        },
+        //初始化完毕
+        function(downloader, callback) {
+            downloader.on('finish_download', function (err, url) {
+                if (!err) {
+                    async.each([[self.instance_name, 'download'],
+                        [self.instance_name, 'current_download'],
+                        [self.process_name, 'download']
+                    ], function (item, callback) {
+                        self.store.hincrby(item[0], item[1], 1);
+                        callback();
+                    }, function (err) {
+                        if (err) self.logger.debug(err);
+                    });
+                    self.engine.logger.info('[ DOWNLOAD ] %s', url);
+                }
+            });
+            self.engine.emit('pipeline', callback);
+        },
+        function(pipeline, callback){
+            pipeline.on('finish_pipeline', function(err, url){
+                if(!err){
+                    async.each([[self.instance_name, 'pipe'],
+                        [self.instance_name, 'current_pipe'],
+                        [self.process_name, 'pipe']
+                    ], function(item, callback){
+                        self.store.hincrby(item[0], item[1], 1);
+                        callback();
+                    },function(err){
+                        if(err) self.logger.debug(err);
+                    });
+                    self.engine.logger.info('[ PIPELINE ] %s', url);
+                }
+            });
+            self.engine.emit('scheduler', callback);
+        },
+        //获取scheduler
+        function(scheduler, callback) {
+            scheduler.emit('start', function(err){
+                if(err) {
+                    process.exit();
+                }else{
+                    change_process_stats(self, 1);
+                }
+            });
+            //设定退出逻辑
+            process.on('exit',function(){
+                scheduler.emit('stop',function(err){
+                    if(err){
+                        //todo 处理退出失败
+                    }
+                    //删除进程信息
+                    self.store.del(self.process_name);
+                    self.store.end();
+                });
+            });
+            scheduler.on('finish_queue', function(){
+                finish_queue_init(self, scheduler, function(err, process_list){
+                    if(err == self.engine.error.CORE_NO_LOOP) {//不需要循环，退出进程
+                        for (var i in process_list) {
+                            //关闭所有进程
+                            change_process_stats(self, 2);
+                        }
+                        self.engine.logger.info('[ CORE ] finish queue, no need loop crawler, first exit');
+                        process.exit();
+                    }else if(err == self.engine.error.CORE_WAIT_INSTANCE_PROCESS){
+                        err = null;
+                    }
+                });
+            });
+            callback();
+        }
+    ], function (err) {
+        if(_.isNumber(err)){
+            self.engine.logger.debug(err);
+            err = self.engine.error.CORE_ERROR;
+        }
+        if(err){
+            self.engine.logger.error('[ CORE ] process has error(%s),exit', err);
+            process.exit();
+        }
+    });
+    //开始进程信息初始化
+    self.store.exists(self.instance_name, function(error, result){
+        if(error){
+            self.store.hset(self.instance_name, 'init_time', self.start_time);
+        }
+    });
+    self.store.hset(self.process_name, 'stats', 0);
+    self.store.hset(self.process_name, 'start_time', self.start_time);
+    self.store.hset(self.process_name, 'host_info', self.host_info);
+    self.store.expire(self.process_name, 300);
+    //保持redis的状态统计
+    setInterval(function(){
+        if(self.stats == 1) self.store.hincrby(self.instance_name, 'current_run_seconds', 1);
+        self.store.hget(self.process_name, 'stats', function(error, result){
+            if(result == 6){//可恢复状态
+                self.engine.emit('scheduler', function(err, scheduler){
+                    scheduler.emit('start', function(){
+                        change_process_stats(self, 1);
+                    });
+                });
+                self.engine.logger.info('[ CORE ] stats is 2, change to run');
+            }else if(result == 2){//关闭状态,手动关闭
+                self.engine.logger.info('[ CORE ] stats is 2, need close, auto exit');
+            }
+        });
+        self.engine.emit('scheduler', function(err, scheduler){
+            if(err) self.engine.logger.debug(err);
+            self.store.hset(self.process_name, 'queue', scheduler.queue.running());
+        });
+        self.store.hset(self.process_name, 'last_heart_time', new Date().getMilliseconds());
+        self.store.expire(self.process_name, 300);
+    },1000);
+}
 
 var core = function(instance_name){
     this.instance_name = instance_name;
+    this.process_list = instance_name+'_*';
     this.start_time = new Date().getMilliseconds();
     this.logger = logger;
     this.store = store;
@@ -72,165 +265,13 @@ var core = function(instance_name){
     var self = this;
     return {
         start:function(options){
-            self.host_info = os.hostname+':'+process.pid;
-            self.process_name = self.instance_name+'_'+ crypto.createHash('md5').update(self.host_info).digest('hex').slice(0,5);
-            async.waterfall([
-                //监听初始化事件
-                function(callback) {
-                    engine.on('finish_init', callback);
-                },
-                //初始化完毕
-                function(callback) {
-                    engine.emit('scheduler', callback);
-                    engine.emit('downloader', function(err, downloader){
-                        downloader.on('finish_download', function(error, url){
-                            self.store.hincrby(self.instance_name, 'download', 1);
-                            self.store.hincrby(self.process_name, 'download', 1);
-                            self.store.hincrby(self.instance_name, 'current_pipe', 1);
-                            engine.logger.info('[ DOWNLOAD ] %s', url);
-                        });
-                    });
-                    engine.emit('pipeline', function(err, pipeline){
-                        pipeline.on('finish_pipeline', function(err, url){
-                            if(err){
-                                engine.logger.warn('[ PIPELINE ] %s', url);
-                            }else{
-                                self.store.hincrby(self.instance_name, 'pipe', 1);
-                                self.store.hincrby(self.process_name, 'pipe', 1);
-                                self.store.hincrby(self.instance_name, 'current_pipe', 1);
-                                engine.logger.info('[ PIPELINE ] %s', url);
-                            }
-                        });
-                    });
-                },
-                //获取scheduler
-                function(scheduler, callback) {
-                    scheduler.emit('start',function(err){
-                        if(err){
-                            engine.logger.warn('[ PIPELINE ] %s', err);
-                        }
-                        self.store.hset(self.process_name, 'stats', 1);
-                        self.stats = 1;
-                    });
-                    //设定退出逻辑
-                    process.on('exit',function(){
-                        scheduler.emit('stop',function(err){
-                            //删除进程信息
-                            self.store.del(self.process_name);
-                            self.store.end();
-                        });
-                    });
-                    scheduler.on('finish_queue', callback);
-                },
-                //队列执行为空
-                function(callback){
-                    self.store.hset(self.process_name, 'stats', 4);
-                    self.stats = 4;
-                    self.store.keys(self.instance_name+'_*', callback);
-                },
-                //获取所有进程列表
-                function(process_list, callback){
-                    async.filter(process_list, function(process_name, callback){
-                        if(process_name == self.process_name) return callback(false);
-                        self.store.hget(process_name, 'stats', function(error, result){
-                            callback(result != 4);
-                        });
-                    }, function(running_process){
-                        //所有进程都执行完毕
-                        if(running_process) return callback(1, process_list);//中断async
-                        //注册为初始化进程
-                        self.store.hset(self.process_name, 'stats', 5);
-                        self.stats = 5;
-                        async.map(['download','pipe','start_time','run_seconds','init_length'],function(item,callback){
-                            self.store.hget(self.instance_name, item, function(error, result){
-                                callback(error, result);
-                            });
-                        },function(err, result){
-                            callback(err, process_list, result)
-                        });
-                    });
-                },
-                //获取所有单个时间分片的数据
-                function(process_list, result, callback){
-                    self.store.rpush(self.instance_name+'_time',JSON.stringify({
-                        download:result[0],
-                        pipe:result[1],
-                        start_time:result[2],
-                        run_seconds:result[3],
-                        init_length:result[4],
-                        end_time:new Date().getMilliseconds()
-                    }));
-                    self.store.hset(self.instance_name, 'current_download', 0);
-                    self.store.hset(self.instance_name, 'current_pipe', 0);
-                    self.store.hset(self.instance_name, 'current_start_time', 0);
-                    self.store.hset(self.instance_name, 'current_run_time', 0);
-                    self.store.hset(self.instance_name, 'current_init_length', 0);
-                    engine.emit('scheduler', function(err, scheduler){
-                        if(scheduler.settings.loop) return callback(2, process_list);//中断async
-                        scheduler.emit('init_queue', function(err, length){
-                            callback(err, process_list, length);
-                        });
-                    });
-
-                },
-                //单个进程执行初始化队列操作
-                function(process_list, length, callback){
-                    self.store.hset(self.instance_name, 'current_init_length', length);
-                    self.store.hset(self.instance_name, 'current_start_time', new Date().getMilliseconds());
-                    for(var i in process_list){
-                        //恢复所有进程的状态
-                        self.store.hset(process_list[i], 'stats', 6);
-                        self.stats = 6;
-                    }
-                    callback(null);
-                }
-            ], function (err, process_list) {
-                if(err == 2){//不需要循环，退出进程
-                    for(var i in process_list){
-                        //关闭所有进程
-                        self.store.hset(process_list[i], 'stats', 2);
-                        self.stats = 2;
-                    }
-                    self.engine.logger('[ SCHEDULER ] finish queue, no need loop crawler, first exit');
-                    process.exit();
-                }
-            });
-            self.store.exists(self.instance_name, function(error, result){
-                if(error){
-                    self.store.hset(self.instance_name, 'init_time', self.start_time);
-                }
-            });
-            self.store.hset(self.process_name, 'stats', 0);
-            self.store.hset(self.process_name, 'start_time', self.start_time);
-            self.store.hset(self.process_name, 'host_info', self.host_info);
-            self.store.expire(self.process_name, 300);
-            //保持redis的状态统计
-            setInterval(function(){
-                if(self.stats == 1) self.store.hincrby(self.instance_name, 'current_run_seconds', 1);
-                self.store.hget(self.process_name, 'stats', function(error, result){
-                    if(result == 6){//可恢复状态
-                        self.engine.emit('scheduler', function(err, scheduler){
-                            scheduler.emit('start', function(){
-                                self.store.hset(self.process_name, 'stats', 1);
-                                self.stats = 1;
-                            });
-                        });
-                    }else if(result == 2){//关闭状态,手动关闭
-                        self.engine.logger('[ SCHEDULER ] stats is 2, need close, auto exit');
-                    }
-                });
-                self.engine.emit('scheduler', function(err, scheduler){
-                    self.store.hset(self.process_name, 'queue', scheduler.queue.running());
-                });
-                self.store.hset(self.process_name, 'last_heart_time', new Date().getMilliseconds());
-                self.store.expire(self.process_name, 300);
-            },1000);
+            start(self, options);
         },
         stop:function(options){
             var self = this;
             store.exists(self.instance_name, function(error, value){
                 if(!value) return console.log(self.instance_name+'is not exist');
-                store.keys(self.instance_name+'_*',function(error, result){
+                store.keys(self.process_list, function(error, result){
                     if(error){
                         console.log(self.instance_name+':is not running');
                     } else {
@@ -238,7 +279,7 @@ var core = function(instance_name){
                             store.hset(result[i], 'stats', 2);
                         }
                         setTimeout(function(){
-                            store.keys(self.instance_name+'_*', function(error, result){
+                            store.keys(self.process_list, function(error, result){
                                 if(error){
                                     console.log(self.instance_name+':stoped');
                                 }else {
@@ -261,7 +302,7 @@ var core = function(instance_name){
                 }
             });
             if(options.process == '*'){
-                store.keys(self.instance_name+'_*', function(error, result){
+                store.keys(self.process_list, function(error, result){
                     for(var i in result){
                         console.log('process_name:%s', result[i]);
                     }

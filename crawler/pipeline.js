@@ -18,12 +18,20 @@ var default_settings = {
 var pipeline = function(engine, settings, init_callback){
     this.engine = engine;
     this.settings = _.extend(default_settings, settings);
+    engine.logger.silly('[ PIPELINE ] init');
     var self = this;
     var pipe_path = self.settings.path ? self.settings.path : self.engine.instance_name+'/pipe';
     async.map(this.settings.pipe, function(pipe_name, callback){
         //todo 判断管道文件是否存在
-        var pipe = require('../'+pipe_path+'/'+pipe_name+'.js')(self.engine.settings);
-        callback(null, pipe);
+        var err = null;
+        try{
+            var pipe = require('../'+pipe_path+'/'+pipe_name+'.js')(self.engine.settings);
+        }catch(e){
+            self.engine.logger.debug(e);
+            self.engine.logger.error('[ PIPELINE ] pipe init error :%s', pipe_name);
+            err = self.engine.error.PIPELINE_PIPE_INIT_ERROR;
+        }
+        callback(err, {name: pipe_name, pipe: pipe});
     },function(err, result){
         self.pipe_list = result;
         init_callback(err, self);
@@ -32,10 +40,19 @@ var pipeline = function(engine, settings, init_callback){
 
 pipeline.on('pipe', function(link, meta, info){
     var self = this;
-    async.reduce(this.pipe_list, info, function(info, pipe, callback){
+    this.engine.logger.info("[ PIPELINE ] pipe %s %s", link, meta);
+    async.reduce(this.pipe_list, info, function(info, pipe_map, callback){
+        self.engine.logger.silly("[ PIPELINE ] pipe %s %s", pipe_map.name);
+        var err = null;
         //依次传入管道中，如果返回false则结束后续管道处理
-        info = pipe(info);
-        callback(!info ? true : null, info);
+        try{
+            info = pipe_map.pipe(info);
+        }catch (e){
+            self.engine.logger.debug(e);
+            self.engine.logger.error('[ PIPELINE ] pipe exec error :%s', pipe_map.name);
+            err = self.engine.error.PIPELINE_PIPE_EXEC_ERROR;
+        }
+        callback(err, info);
     },function(err, result){
         self.emit('finish_pipe', err, link);
     });

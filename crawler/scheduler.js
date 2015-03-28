@@ -1,12 +1,11 @@
 /**
  * 实例调度器，处理单个实例调度
  * 事件列表：
- *      finish_init(err):初始化完成
  *      finish_queue(err, loop):结束一个时间分片,是否自动循环抓取
  * 监听列表：
  *      start(callback(err)): 启动
  *      stop(callback(err))：关闭
- *      push(link, meta):将url入队操作
+ *      push(link, meta, callback(err)):将url入队操作
  *      init_queue(callback(err, queue_length))：初始化一个时间分片
  */
 
@@ -26,6 +25,7 @@ var scheduler = function(engine, settings, init_callback){
     this.started = false;
     this.engine = engine;
     this.settings = _.extend(default_settings, settings);
+    engine.logger.silly('[ SCHEDULER ] init');
     var self = this;
     this.engine.on('finish_init', function(){
         self.engine.emit('downloader', function(err, downloader){
@@ -42,6 +42,9 @@ var scheduler = function(engine, settings, init_callback){
     //同时开启多少个下载队列
     this.queue = async.queue(function(task, callback){
         self.downloader.emit('download', task.url, task.meta, function(err, milliseconds){
+            if(err){
+                //todo 针对下载错误
+            }
             if(download_time_limit > milliseconds)
                 setTimeout(callback, download_time_limit - milliseconds);
             else
@@ -51,11 +54,15 @@ var scheduler = function(engine, settings, init_callback){
     this.queue.empty(function(){
         if(!self.instance.length){
             self.started = false;
-            //一次只能由一个实例进程进行时间片的关闭级初始化操作
-            //todo 对于抓取元素，得在最后次pipe操作后才能触发finish_queue事件
             self.emit('finish_queue', null, self.settings.loop);
         }else {
-            var url_info = self.instance.shift();
+            var url_info = null;
+            try{
+                url_info = self.instance.shift();
+            }catch(e){
+                self.engine.logger.debug(e);
+
+            }
             self.queue.push({url: url_info[0], meta: url_info[1]});
         }
     });
@@ -64,27 +71,52 @@ var scheduler = function(engine, settings, init_callback){
 util.inherits(scheduler, events.EventEmitter);
 
 scheduler.on('init_queue', function(callback){
-    if(!this.instance.length) this.instance.init_queue();
-    if(!this.instance.length) this.logger.error('[ INSTANCE ] instance has 0 queue length after init_queue!');
-    callback(null, this.instance.length);
+    var err = null;
+    try{
+        if(!this.instance.length) this.instance.init_queue();
+    }catch(e){
+        this.engine.logger.debug(e);
+    }
+    if(!this.instance.length) {
+        this.engine.logger.error('[ SCHEDULER ] instance has 0 queue length after init_queue!');
+        err = this.engine.error.SCHEDULER_QUEUE_ERROR;
+    }
+    callback(err, this.instance.length);
 });
 
 scheduler.on('stop',function(callback){
+    this.engine.logger.info("[ SCHEDULER ] stop");
     this.queue.kill();
     callback(null);
 });
 
 scheduler.on('start',function(callback){
+    this.engine.logger.info("[ SCHEDULER ] start");
+    var err = null;
     if (this.started) {
-        return this.logger.warn('[ EVENT ] scheduler is running! not need start again!');
+        this.logger.warn('[ SCHEDULER ] scheduler is running! not need start again!');
+        err = this.engine.error.SCHEDULER_START_AGAIN;
+    }else if(!this.queue){
+        this.logger.error('[ SCHEDULER ] queue is error!');
+        err = this.engine.error.SCHEDULER_START_ERROR;
+    }else{
+        this.queue.statted = true;
+        this.started = true;
     }
-    this.queue.statted = true;
-    this.started = true;
-    callback(null);
+    callback(err);
 });
 
-scheduler.on('push', function(link, meta){
-    this.instance.push([link, meta]);
+scheduler.on('push', function(link, meta, callback){
+    this.engine.logger.info("[ SCHEDULER ] pull %s %s", link, meta);
+    var err = null;
+    try{
+        this.instance.push([link, meta]);
+    }catch(e){
+        this.engine.logger.debug(e);
+        this.engine.logger.error('[ SCHEDULER ] instance can not push link!');
+        err = this.engine.error.SCHEDULER_PUSH_ERROR;
+    }
+    callback(err);
 });
 
 module.exports = scheduler;

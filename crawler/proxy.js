@@ -29,6 +29,7 @@ var proxy = function(engine, settings, init_callback){
     this.key = settings.redis.key;
     this.redis = redis.createClient(settings.redis.port, settings.redis.host);
     this.proxy_list = [];
+    engine.logger.silly('[ PROXY ] init');
     var self = this;
     updateLength(self, init_callback);
 };
@@ -38,7 +39,8 @@ function updateLength(self, callback){
     self.redis.zcard(this.key, function(err, result){
         self.length = result;
         //发送告警
-        if(self.length < self.settings.waring_num) self.engine.logger.warning('[ PROXY ] proxy num is %s', self.length);
+        if(self.length < self.settings.waring_num)
+            self.engine.logger.warning('[ PROXY ] proxy num is %s', self.length);
         callback(err, result);
     });
 }
@@ -76,9 +78,10 @@ function callbackProxy(self, object){
 proxy.on('proxy', function(next_callback){
     var self = this;
     var time_stamp = parseInt(new Date().getMilliseconds()/1000);
+    this.engine.logger.info('[ PROXY ] proxy');
     async.waterfall([
         function(callback){
-            if(self.proxy_list.length) return callback(1, self.proxy_list.pop());
+            if(self.proxy_list.length) return callback(self.engine.error.PROXY_ENOUGH, self.proxy_list.pop());
             callback(null);
         },
         function(callback){
@@ -94,6 +97,10 @@ proxy.on('proxy', function(next_callback){
             });
         }
     ], function(err, info){
+        if(err && err != self.engine.error.PROXY_ENOUGH){
+            self.engine.logger.debug(e);
+            self.engine.logger.error('[ PROXY ] proxy get error');
+        }
         if(!info) return next_callback(err);
         var proxy = parseProxy(info);
         next_callback(null, proxy.host, proxy.port, callbackProxy(self, proxy));
