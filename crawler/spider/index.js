@@ -10,9 +10,9 @@ spider = function (factory) {
         download: function(url, meta){
             return {};
         },
-        index: function (url, meta, $) {
-            factory.emit('url', url, meta);
-            factory.emit('pipe', info);
+        index: function (link, meta, $) {
+            factory.emit('url', link, meta);
+            factory.emit('pipe', link, meta, 'info');
         }
     }
 };

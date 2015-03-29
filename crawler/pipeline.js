@@ -3,12 +3,13 @@
  * 事件列表：
  *      finish_pipe(err, link):处理完一个管道请求
  * 监听列表：
- *      pipe(link, meta, info): 接收一个管道请求
+ *      pipe(link, meta, info, callback(err)): 接收一个管道请求
  */
 
 var util = require('util');
 var events = require('events');
 var async = require('async');
+var _ = require('underscore')._;
 
 var default_settings = {
     path: false//管道文件所在的路径，默认在实例的pipe下
@@ -17,10 +18,11 @@ var default_settings = {
 
 var pipeline = function(engine, settings, init_callback){
     this.engine = engine;
-    this.settings = _.extend(default_settings, settings);
-    engine.logger.silly('[ PIPELINE ] init');
+    this.settings = _.defaults(settings, default_settings);
+    engine.logger.silly('[ PIPELINE ] init ', this.settings);
     var self = this;
     var pipe_path = self.settings.path ? self.settings.path : self.engine.instance_name+'/pipe';
+    event_init(this);
     async.map(this.settings.pipe, function(pipe_name, callback){
         //todo 判断管道文件是否存在
         var err = null;
@@ -28,7 +30,7 @@ var pipeline = function(engine, settings, init_callback){
             var pipe = require('../'+pipe_path+'/'+pipe_name+'.js')(self.engine.settings);
         }catch(e){
             self.engine.logger.debug(e);
-            self.engine.logger.error('[ PIPELINE ] pipe init error :%s', pipe_name);
+            self.engine.logger.error('[ PIPELINE ] pipe init error :', pipe_name);
             err = self.engine.error.PIPELINE_PIPE_INIT_ERROR;
         }
         callback(err, {name: pipe_name, pipe: pipe});
@@ -37,25 +39,29 @@ var pipeline = function(engine, settings, init_callback){
         init_callback(err, self);
     });
 };
+util.inherits(pipeline, events.EventEmitter);
 
-pipeline.on('pipe', function(link, meta, info){
+function event_init(pipeline){
+pipeline.on('pipe', function(link, meta, info, callback){
     var self = this;
-    this.engine.logger.info("[ PIPELINE ] pipe %s %s", link, meta);
+    this.engine.logger.info("[ PIPELINE ] pipe ", link, meta);
     async.reduce(this.pipe_list, info, function(info, pipe_map, callback){
-        self.engine.logger.silly("[ PIPELINE ] pipe %s %s", pipe_map.name);
+        self.engine.logger.silly("[ PIPELINE ] pipe", pipe_map.name);
         var err = null;
         //依次传入管道中，如果返回false则结束后续管道处理
         try{
             info = pipe_map.pipe(info);
         }catch (e){
             self.engine.logger.debug(e);
-            self.engine.logger.error('[ PIPELINE ] pipe exec error :%s', pipe_map.name);
+            self.engine.logger.error('[ PIPELINE ] pipe exec error :', pipe_map.name);
             err = self.engine.error.PIPELINE_PIPE_EXEC_ERROR;
         }
         callback(err, info);
     },function(err, result){
+        callback(err);
         self.emit('finish_pipe', err, link);
     });
 });
+}
 
 module.exports = pipeline;

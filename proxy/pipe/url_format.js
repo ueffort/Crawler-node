@@ -4,7 +4,7 @@
 
 var pipe = function(settings){
     return function(info){
-
+        console.log(info);
     };
 };
 

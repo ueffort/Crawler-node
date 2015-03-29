@@ -20,7 +20,7 @@
 var util = require('util');
 var events = require('events');
 var async = require('async');
-var urlUtil =  require("url");
+var url =  require("url");
 var _ = require('underscore')._;
 
 var default_settings = {
@@ -30,15 +30,17 @@ var default_settings = {
 var spider = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.engine = engine;
-    this.settings = _.extend(default_settings, settings);
+    this.settings = _.defaults(settings, default_settings);
     this.spider_list = {};
-    engine.logger.silly('[ SPIDER ] init');
+    engine.logger.silly('[ SPIDER ] init ', this.settings);
+    event_init(this);
     init_callback(null, this);
 };
+util.inherits(spider, events.EventEmitter);
 
 //根据当前url返回页面中url的完整格式
 spider.prototype.absoluteLink = function(present, target){
-    return urlUtil.resolve(present, target);
+    return url.resolve(present, target);
     //如果是绝对链接，直接返回
     if(target.indexOf('http')==0)
         return target;
@@ -62,6 +64,7 @@ spider.prototype.absoluteLink = function(present, target){
 
 //返回当前链接的顶级域名
 spider.prototype.topDomain = function(domain){
+    if(!domain) throw 'domain is null';
     for(var b = domain.split('.'),
             c = /com|edu|gov|int|mil|net|org|biz|info|pro|name|museum|coop|aero|xxx|idv/,
             d = b.length - 1,
@@ -80,17 +83,20 @@ spider.prototype.topDomain = function(domain){
     return b.slice(f - 1).join('.');
 };
 
+function event_init(spider){
 spider.on('spider', function(link, meta, callback){
-    this.engine.logger.info('[ SPIDER ] spider %s %s', link, meta);
+    this.engine.logger.info('[ SPIDER ] spider ', link, meta);
     var err = null;
+    //根据url获取domain
+    if(!meta['spider']) meta['spider'] = this.topDomain(url.parse(link).hostname);
     var spider_name = meta['spider'];
-    if(!spider_name in this.spider_list){
+    if(_.isUndefined(this.spider_list[spider_name])){
         try{
             var spider_path = this.settings.path ? this.settings.path : this.engine.instance_name+'/spider';
             this.spider_list[spider_name] = require('../'+spider_path+'/'+spider_name+'.js')(this);
         }catch(e){
             this.engine.logger.debug(e);
-            this.engine.logger.error('[ SPIDER ] spider init error :%s', spider_name);
+            this.engine.logger.error('[ SPIDER ] spider init error :', spider_name);
             err = this.engine.error.SPIDER_INIT_ERROR;
             return callback(err);
         }
@@ -98,7 +104,7 @@ spider.on('spider', function(link, meta, callback){
     }
     var spider = this.spider_list[spider_name];
     if(_.isUndefined(spider[meta['type']])){
-        this.engine.logger.error('[ SPIDER ] %s spider have not %s type', spider_name, meta['type']);
+        this.engine.logger.error('[ SPIDER ] ', spider_name,' spider have not ',meta['type'],' type');
         err = this.engine.error.SPIDER_TYPE_ERROR;
         return callback(err);
     }
@@ -107,20 +113,23 @@ spider.on('spider', function(link, meta, callback){
     });
 });
 
-spider.on('pipe', function(info){
-    this.engine.logger.info('[ SPIDER ] pipe %s', info);
+spider.on('pipe', function(link, meta, info){
+    this.engine.logger.info('[ SPIDER ] pipe ', info);
     this.engine.emit('pipeline', function(err, pipeline){
-        pipeline.emit('pipe', info);
+        pipeline.emit('pipe', link, meta, info, function(err){
+
+        });
     });
 });
 
 spider.on('url', function(link, meta){
-    this.engine.logger.info('[ SPIDER ] url %s %s', link, meta);
-    //根据url获取domain，用于下载器中获取对应的spider
-    if(!meta['spider']) meta['spider'] = this.topDomain(url.parse(link).hostname);
+    this.engine.logger.info('[ SPIDER ] url ', link, meta);
     this.engine.emit('scheduler', function(err, scheduler){
-        scheduler.emit(link, meta);
+        scheduler.emit(link, meta, function(err){
+
+        });
     });
 });
+}
 
 module.exports = spider;

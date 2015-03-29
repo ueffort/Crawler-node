@@ -86,4 +86,15 @@ program
         require('./monitor').slave();
     });
 
+program
+    .command('*')
+    .action(function(options){
+        program.help();
+    });
+
 program.parse(process.argv);
+
+//如果没有任何参数则直接输出帮助
+if(process.argv.length <= 2){
+    program.help();
+}

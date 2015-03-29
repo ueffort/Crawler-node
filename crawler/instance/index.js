@@ -1,6 +1,6 @@
-var instance = function(engine){
+var instance = function(engine, settings){
     this.engine = engine;
-    this.settings = engine.settings;
+    this.settings = settings;
     this.length = 0;
 };
 

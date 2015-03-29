@@ -3,12 +3,12 @@ module.exports={
         proxy: false
     },
     pipeline:{
-        pipe: []
+        pipe: ['url_format']
     },
     scheduler:{
         loop: false//是否自动循环抓取
     },
     start_url: [
-        ['proxy.com.ru', {type: 'index'}]
+        ['http://proxy.com.ru', {type: 'index'}]
     ]
 };

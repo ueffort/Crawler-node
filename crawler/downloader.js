@@ -35,12 +35,13 @@ var default_settings = {
 var downloader = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.engine = engine;
-    this.settings = _.extend(default_settings, settings);
-    engine.logger.silly('[ DOWNLOADER ] init');
+    this.settings = _.defaults(settings, default_settings);
+    engine.logger.silly('[ DOWNLOADER ] init ', this.settings);
     var self = this;
+    event_init(this);
     this.engine.on('finish_init', function(){
-        self.engine.emit('proxy', function(proxy){
-            self.proxy = proxy;
+        self.engine.emit('proxy', function(err, proxy){
+            if(proxy.able) self.proxy = proxy;
         });
     });
     init_callback(null, this);
@@ -97,7 +98,7 @@ var download = function(self, settings, link, meta, finish_callback){
         method: settings['method'],
         headers: headers
     };
-    self.engine.logger.silly('[ DOWNLOADER ] start download %s', link);
+    self.engine.logger.silly('[ DOWNLOADER ] start download ', link);
     var request = http.request(options, function(response) {
         var meta = {};
         meta['status'] = response.statusCode;
@@ -116,7 +117,7 @@ var download = function(self, settings, link, meta, finish_callback){
         });
 
         response.on('end', function () {
-            self.engine.logger.silly('[ DOWNLOADER ] end download %s', link);
+            self.engine.logger.silly('[ DOWNLOADER ] end download', link);
             if(settings['encoding'])
                 meta['encoding'] = settings['encoding'];
             else
@@ -181,9 +182,10 @@ var callbackDownload = function(self, queue_callback, spider_function, link, cal
     }
 };
 
+function event_init(downloader){
 //接收下载请求
 downloader.on('download', function(link, meta, queue_callback){
-    this.engine.logger.info('[ DOWNLOADER ] download %s %s', link, meta);
+    this.engine.logger.info('[ DOWNLOADER ] download ', link, meta);
     var self = this;
     async.waterfall([
         function(callback){
@@ -194,8 +196,12 @@ downloader.on('download', function(link, meta, queue_callback){
         },
         //获取蜘蛛处理函数，判断代理，开始下载
         function(settings, spider_function, callback){
+            self.engine.logger.silly('[ DOWNLOADER ] spider-download settings', settings);
             settings = _.extend(self.settings, settings);
-            if(settings.proxy){
+            if(settings.proxy && !self.proxy){
+                self.engine.logger.warn('[ DOWNLOADER ] proxy is close! proxy settings is invalid!');
+            }
+            if(settings.proxy && self.proxy){
                 self.proxy.emit('proxy', function(err, host, port, proxy_callback){
                     if(err) return callback(err);
                     settings.proxy = {
@@ -217,5 +223,6 @@ downloader.on('download', function(link, meta, queue_callback){
         }
     });
 });
+}
 
 module.exports = downloader;

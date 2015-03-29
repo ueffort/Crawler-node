@@ -8,9 +8,9 @@ var spider = function(factory){
         download: function(url, meta){
             return {};
         },
-        index: function(url , meta, $){
-            var info = $('title');
-            factory.emit('pipe', url, meta, info);
+        index: function(link , meta, $){
+            var info = $('title').text();
+            factory.emit('pipe', link, meta, info);
         }
     }
 };

@@ -1,6 +1,8 @@
 /**
  * Created by gaojie on 15/3/20.
  * 核心调节:完成整体对象的初始化，并提供全局获取其他对象的接口
+ * 函数列表：
+ *      init：初始化
  * 事件列表：
  *      finish_init(err):初始化结束
  * 监听列表：
@@ -16,14 +18,14 @@
 var util = require('util');
 var events = require('events');
 var async = require('async');
-var winton = require('winton');
+var winston = require('winston');
+var _ = require('underscore')._;
 //全局错误列表
 //每个模块的第一位错误序号不同
 var error_list = {
     //base error
     CORE_ERROR: 1
     ,CORE_WAIT_INSTANCE_PROCESS: 2
-    ,CORE_NO_LOOP: 3
     ,ENGINE_INIT_ERROR: 611//初始化出错
     ,ENGINE_INIT_INSTANCE_ERROR: 601
     //scheduler error
@@ -32,6 +34,8 @@ var error_list = {
     ,SCHEDULER_START_AGAIN: 113
     ,SCHEDULER_PUSH_ERROR: 114
     ,SCHEDULER_QUEUE_ERROR: 115
+    ,SCHEDULER_NO_NEED_INIT_QUEUE: 116
+    ,SCHEDULER_QUEUE_EMPTY: 117
     //downloader error
     ,DOWNLOADER_DOWNLOAD_ERROR: 211
     ,DOWNLOADER_DEPEND_ERROR: 212
@@ -39,7 +43,6 @@ var error_list = {
     //spider error
     ,SPIDER_INIT_ERROR: 301
     ,SPIDER_TYPE_ERROR: 302
-    ,SPIDER_NULL: 303
     //pipeline error
     ,PIPELINE_PIPE_INIT_ERROR: 411
     ,PIPELINE_PIPE_EXEC_ERROR: 412
@@ -51,46 +54,67 @@ var engine = function(crawler){
     events.EventEmitter.call(this);
     this.crawler = crawler;
     this.instance_name = crawler.instance_name;
-    this.init = false;
+    this.inited = false;
     var self = this;
-
+    event_init(this);
 };
 util.inherits(engine, events.EventEmitter);
 
 //外部触发初始化，保证能先进行事件监听
 engine.prototype.init = function(){
-    if(this.init) return ;
-    this.crawler.logger.silly('[ ENGINE ] init');
+    if(this.inited) return ;
+    this.crawler.logger.silly('[ ENGINE ] init', this.instance_name);
     var self = this;
     async.series({
             instance: function(callback){
                 try{
                     var instance_settings = require('../'+self.instance_name+'/settings.js');
-                    var instance = new (require('../'+self.instance_name+'/index.js'))(engine);
+                    if (!instance_settings) callback('[ CONFIG ] instance settings is null', self.instance_name);
+                    self.settings = _.extend(instance_settings, self.crawler.settings);
+                    self.crawler.logger.info('[ CONFIG ]', self.settings);
+                    winston.loggers.add(self.instance_name, self.settings.logger);
+                    self.logger = winston.loggers.get(self.instance);
+                    var instance = new (require('../'+self.instance_name+'/index.js'))(self, self.settings);
                 }catch(e){
-                    self.crawler.logger.error('[ CONFIG ] instance(%s) init error', self.instance_name);
+                    self.crawler.logger.error('[ CONFIG ] instance init error', self.instance_name);
                     callback(e);
                 }
-                if (!instance_settings) callback('[ CONFIG ] instance(%s) settings is null');
-                self.settings = _.extend(instance_settings, self.crawler.settings);
-                winton.loggers.add(self.instance_name, self.settings.logger);
-                self.logger = winton.loggers.get(self.instance);
                 callback(null, instance);
             },
             scheduler: function(callback){
-                var scheduler = new (require('./scheduler.js'))(self, self.settings.scheduler, callback);
+                try{
+                    var scheduler = new (require('./scheduler.js'))(self, self.settings.scheduler ? self.settings.scheduler : {}, callback);
+                }catch(e){
+                    callback(e);
+                }
             },
             downloader: function(callback){
-                var downloader = new (require('./downloader.js'))(self, self.settings.downloader, callback);
+                try{
+                    var downloader = new (require('./downloader.js'))(self, self.settings.downloader ? self.settings.downloader : {}, callback);
+                }catch(e){
+                    callback(e);
+                }
             },
             proxy: function(callback){
-                var proxy = new (require('./proxy.js'))(self, self.settings.proxy, callback);
+                try{
+                    var proxy = new (require('./proxy.js'))(self, self.settings.proxy ? self.settings.proxy : {}, callback);
+                }catch(e){
+                    callback(e);
+                }
             },
             spider: function(callback){
-                var spider = new (require('./spider.js'))(self, self.settings.spider, callback);
+                try{
+                    var spider = new (require('./spider.js'))(self, self.settings.spider ? self.settings.spider : {}, callback);
+                }catch(e){
+                    callback(e);
+                }
             },
             pipeline: function(callback){
-                var pipeline = new (require('./pipeline.js'))(self, self.settings.pipeline, callback);
+                try{
+                    var pipeline = new (require('./pipeline.js'))(self, self.settings.pipeline ? self.settings.pipeline : {}, callback);
+                }catch(e){
+                    callback(e);
+                }
             }
         },
         function(err, results) {
@@ -100,10 +124,11 @@ engine.prototype.init = function(){
                     err = error_list.ENGINE_INIT_INSTANCE_ERROR;
                 }else{
                     err = error_list.ENGINE_INIT_ERROR;
-                    self.logger.error('[ ENGINE ] engine init error:%s', err);
+                    self.logger.error('[ ENGINE ] engine init error:', err);
                 }
             }else{
                 self.service = results;
+                self.inited = true;
             }
             self.emit('finish_init', err);
         }
@@ -113,7 +138,7 @@ engine.prototype.init = function(){
 
 //避免日后的扩展需求，对核心对象都通过异步调用
 //内部尽可能的对各个对象实现解偶
-
+function event_init(engine){
 engine.on('instance', function(callback){
     return callback(null, this.service.instance);
 });
@@ -137,6 +162,7 @@ engine.on('spider', function(callback){
 engine.on('pipeline', function(callback){
     return callback(null, this.service.pipeline);
 });
+}
 
 engine.prototype.error = error_list;
 

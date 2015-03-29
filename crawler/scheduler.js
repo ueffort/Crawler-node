@@ -1,12 +1,12 @@
 /**
  * 实例调度器，处理单个实例调度
  * 事件列表：
- *      finish_queue(err, loop):结束一个时间分片,是否自动循环抓取
+ *      finish_queue(err):结束一个时间分片,是否自动循环抓取
  * 监听列表：
  *      start(callback(err)): 启动
  *      stop(callback(err))：关闭
- *      push(link, meta, callback(err)):将url入队操作
  *      init_queue(callback(err, queue_length))：初始化一个时间分片
+ *      push(link, meta, callback(err)):将url入队操作
  */
 
 var util = require('util');
@@ -24,9 +24,10 @@ var scheduler = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.started = false;
     this.engine = engine;
-    this.settings = _.extend(default_settings, settings);
-    engine.logger.silly('[ SCHEDULER ] init');
+    this.settings = _.defaults(settings, default_settings);
+    engine.logger.silly('[ SCHEDULER ] init ', this.settings);
     var self = this;
+    event_init(this);
     this.engine.on('finish_init', function(){
         self.engine.emit('downloader', function(err, downloader){
             self.downloader = downloader;
@@ -41,6 +42,7 @@ var scheduler = function(engine, settings, init_callback){
         parseInt(60000 / this.settings.frequency / this.settings.parallel) : 0;
     //同时开启多少个下载队列
     this.queue = async.queue(function(task, callback){
+        self.engine.logger.silly('[ SCHEDULER ] queue ',task);
         self.downloader.emit('download', task.url, task.meta, function(err, milliseconds){
             if(err){
                 //todo 针对下载错误
@@ -51,35 +53,62 @@ var scheduler = function(engine, settings, init_callback){
                 callback();
         });
     }, this.settings.parallel);
-    this.queue.empty(function(){
-        if(!self.instance.length){
-            self.started = false;
-            self.emit('finish_queue', null, self.settings.loop);
-        }else {
+    this.queue.empty = function(){
+        if(self.instance.length==0) return ;
+        self.engine.logger.silly('[ SCHEDULER ] get url from instance queue');
+        self.started = true;
+        //填充下载队列
+        async.whilst(function(){
+            return self.queue.idle() && self.instance.length > 0;
+        }, function(callback){
             var url_info = null;
             try{
                 url_info = self.instance.shift();
             }catch(e){
                 self.engine.logger.debug(e);
-
             }
             self.queue.push({url: url_info[0], meta: url_info[1]});
+            callback(self.instance.length > 0 ? null: self.engine.error.SCHEDULER_QUEUE_EMPTY);
+        }, function(err) {
+            if(self.instance.length==0){
+                self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait work end');
+            }
+        });
+    };
+    this.queue.drain = function(){
+        if(!self.instance.length){
+            self.engine.logger.info('[ SCHEDULER ] instance queue is empty, finish_queue!');
+            self.emit('finish_queue', null);
+            self.engine.logger.silly('[ SCHEDULER ] pause work queue');
+            this.pause();
         }
-    });
+    };
     init_callback(null, this);
 };
 util.inherits(scheduler, events.EventEmitter);
 
+function event_init(scheduler){
 scheduler.on('init_queue', function(callback){
+    //避免第一次执行实例，队列为空
+    if(!this.settings.loop && this.started) return callback(this.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE);
+    this.engine.logger.info('[ SCHEDULER ] start init instance queue!');
     var err = null;
     try{
         if(!this.instance.length) this.instance.init_queue();
+        this.engine.logger.silly('[ SCHEDULER ] instance init queue length ',this.instance.length);
     }catch(e){
         this.engine.logger.debug(e);
     }
     if(!this.instance.length) {
         this.engine.logger.error('[ SCHEDULER ] instance has 0 queue length after init_queue!');
         err = this.engine.error.SCHEDULER_QUEUE_ERROR;
+    }
+    if(!err){
+        if(this.queue.paused){
+            this.queue.resume();
+            this.engine.logger.silly('[ SCHEDULER ] resume work queue');
+        }
+        this.queue.empty();
     }
     callback(err, this.instance.length);
 });
@@ -93,21 +122,21 @@ scheduler.on('stop',function(callback){
 scheduler.on('start',function(callback){
     this.engine.logger.info("[ SCHEDULER ] start");
     var err = null;
-    if (this.started) {
-        this.logger.warn('[ SCHEDULER ] scheduler is running! not need start again!');
-        err = this.engine.error.SCHEDULER_START_AGAIN;
-    }else if(!this.queue){
-        this.logger.error('[ SCHEDULER ] queue is error!');
+    if(!this.queue){
+        this.engine.logger.error('[ SCHEDULER ] queue is error!');
         err = this.engine.error.SCHEDULER_START_ERROR;
     }else{
-        this.queue.statted = true;
-        this.started = true;
+        if (this.started) {
+            this.engine.logger.warn('[ SCHEDULER ] scheduler is running! not need start again!');
+        }
+        if(this.queue.length()==0) this.queue.empty();
+        if(this.queue.idle()) this.queue.drain();
     }
     callback(err);
 });
 
 scheduler.on('push', function(link, meta, callback){
-    this.engine.logger.info("[ SCHEDULER ] pull %s %s", link, meta);
+    this.engine.logger.info("[ SCHEDULER ] pull ", link, meta);
     var err = null;
     try{
         this.instance.push([link, meta]);
@@ -118,5 +147,6 @@ scheduler.on('push', function(link, meta, callback){
     }
     callback(err);
 });
+}
 
 module.exports = scheduler;

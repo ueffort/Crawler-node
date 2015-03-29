@@ -13,11 +13,8 @@ var redis = require('redis');
 var _ = require('underscore')._;
 
 var default_settings = {
-    redis: {
-        host: '127.0.0.1'
-        ,port: '6379'
-    }
-    ,redis_key: 'proxy'//在redis中代理集合的key
+    redis: false
+    ,redis_key: 'crawler_proxy'//在redis中代理集合的key
     ,waring_num: 15//代理告警限制，还剩多少代理后发出警报
     ,download_times: 10//每个代理下载几次重新获取新代理，避免被封
 };
@@ -25,23 +22,40 @@ var default_settings = {
 var proxy = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.engine = engine;
-    this.settings = _.extend(default_settings, settings);
-    this.key = settings.redis.key;
-    this.redis = redis.createClient(settings.redis.port, settings.redis.host);
-    this.proxy_list = [];
-    engine.logger.silly('[ PROXY ] init');
-    var self = this;
-    updateLength(self, init_callback);
+    this.settings = _.defaults(settings, default_settings);
+    engine.logger.silly('[ PROXY ] init ', this.settings);
+    event_init(this);
+    this.able = false;
+    if(_.isUndefined(this.settings.redis)) {
+        engine.logger.warning('[ PROXY ] proxy redis has not settings, proxy is Unavailable');
+        init_callback();
+    }else if(!this.settings.redis){
+        engine.logger.info('[ PROXY ] proxy is close');
+        init_callback();
+    }else{
+        this.key = settings.redis.key;
+        this.redis = redis.createClient(settings.redis.port, settings.redis.host);
+        this.proxy_list = [];
+        this.able = true;
+        var self = this;
+        updateLength(self, init_callback);
+    }
 };
+util.inherits(proxy, events.EventEmitter);
 
 //更新代理列表数量
 function updateLength(self, callback){
     self.redis.zcard(this.key, function(err, result){
-        self.length = result;
-        //发送告警
-        if(self.length < self.settings.waring_num)
-            self.engine.logger.warning('[ PROXY ] proxy num is %s', self.length);
-        callback(err, result);
+        if(err){
+            self.engine.logger.debug(err);
+            self.able = false;
+        }else{
+            self.length = result;
+            //发送告警
+            if(self.length < self.settings.waring_num)
+                self.engine.logger.warn('[ PROXY ] proxy num is ', self.length);
+            callback(err, result);
+        }
     });
 }
 
@@ -75,6 +89,7 @@ function callbackProxy(self, object){
     }
 }
 
+function event_init(proxy){
 proxy.on('proxy', function(next_callback){
     var self = this;
     var time_stamp = parseInt(new Date().getMilliseconds()/1000);
@@ -105,7 +120,7 @@ proxy.on('proxy', function(next_callback){
         var proxy = parseProxy(info);
         next_callback(null, proxy.host, proxy.port, callbackProxy(self, proxy));
     });
-
 });
+}
 
 module.exports = proxy;
