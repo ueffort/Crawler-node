@@ -74,7 +74,7 @@ function change_process_stats(self, stats){
     self.stats = stats;
 }
 
-function finish_queue_init(self, scheduler, callback){
+function queue_init(self, scheduler, callback){
     self.logger.silly('[ CORE ] queue is empty, start init!');
     change_process_stats(self, 4);
     //获取所有进程列表
@@ -96,7 +96,8 @@ function finish_queue_init(self, scheduler, callback){
                 self.store.hget(self.instance_name, item, function(error, result){
                     callback(error, result);
                 });
-            },function(err, result){
+            }, function(err, result){
+                //非初次初始化，记录时间分片信息
                 if(!_.isUndefined(result[4]) && result[4] == 0){
                     self.logger.silly('[ CORE ] finish time!', result);
                     self.store.rpush(self.instance_name+'|time', JSON.stringify({
@@ -195,29 +196,33 @@ function event_init(self, option){
                     self.store.end();
                 });
             });
-            scheduler.on('finish_queue', function(err){
-                finish_queue_init(self, scheduler, function(err, process_list){
-                    if(err == self.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE || self == self.engine.SCHEDULER_QUEUE_ERROR) {//不需要循环，退出进程
-                        for (var i in process_list) {
-                            //关闭所有进程
-                            change_process_stats(self, 2);
+            async.each(['finish_queue', 'wait_queue'], function(item, callback){
+                scheduler.on(item, function(err){
+                    queue_init(self, scheduler, function(err, process_list){
+                        if(err == self.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE || self == self.engine.SCHEDULER_QUEUE_ERROR) {//不需要循环，退出进程
+                            for (var i in process_list) {
+                                //关闭所有进程
+                                change_process_stats(self, 2);
+                            }
+                            self.engine.logger.info('[ CORE ] finish queue, no need loop crawler, exec exit');
+                            process.exit();
+                        }else if(err == self.engine.error.CORE_WAIT_INSTANCE_PROCESS){
+                            err = null;
+                            self.engine.logger.info('[ CORE ] instance has running process, wait!');
                         }
-                        self.engine.logger.info('[ CORE ] finish queue, no need loop crawler, exec exit');
-                        process.exit();
-                    }else if(err == self.engine.error.CORE_WAIT_INSTANCE_PROCESS){
-                        err = null;
-                        self.engine.logger.info('[ CORE ] instance has running process, wait!');
+                    });
+                });
+                callback(null);
+            }, function(err){
+                scheduler.emit('start', function(err){
+                    if(err) {
+                        process.exit(1);
+                    }else{
+                        change_process_stats(self, 1);
                     }
                 });
+                callback(null);
             });
-            scheduler.emit('start', function(err){
-                if(err) {
-                    process.exit(1);
-                }else{
-                    change_process_stats(self, 1);
-                }
-            });
-            callback(null);
         }
     ], function (err) {
         if(err && !_.isNumber(err)){

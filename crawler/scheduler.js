@@ -2,6 +2,7 @@
  * 实例调度器，处理单个实例调度
  * 事件列表：
  *      finish_queue(err):结束一个时间分片,是否自动循环抓取
+ *      wait_queue(err):等待队列初始化
  * 监听列表：
  *      start(callback(err)): 启动
  *      stop(callback(err))：关闭
@@ -77,11 +78,24 @@ var scheduler = function(engine, settings, init_callback){
     };
     this.queue.drain = function(){
         if(!self.instance.length){
-            self.engine.logger.info('[ SCHEDULER ] instance queue is empty, finish_queue!');
-            self.emit('finish_queue', null);
+            if(self.started){
+                self.engine.logger.info('[ SCHEDULER ] instance queue is empty, finish_queue!');
+                self.emit('finish_queue', null);
+            }else{
+                self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait_queue!');
+                self.emit('wait_queue', null);
+            }
             self.engine.logger.silly('[ SCHEDULER ] pause work queue');
             this.pause();
         }
+    };
+    this.queue.schedule = function(){
+        if(this.paused){
+            this.resume();
+            self.engine.logger.silly('[ SCHEDULER ] resume work queue');
+        }
+        if(this.length()==0) this.empty();
+        if(this.idle()) this.drain();
     };
     init_callback(null, this);
 };
@@ -90,7 +104,8 @@ util.inherits(scheduler, events.EventEmitter);
 function event_init(scheduler){
 scheduler.on('init_queue', function(callback){
     //避免第一次执行实例，队列为空
-    if(!this.settings.loop && this.started) return callback(this.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE);
+    if(!this.settings.loop && this.started)
+        return callback(this.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE);
     this.engine.logger.info('[ SCHEDULER ] start init instance queue!');
     var err = null;
     try{
@@ -104,11 +119,7 @@ scheduler.on('init_queue', function(callback){
         err = this.engine.error.SCHEDULER_QUEUE_ERROR;
     }
     if(!err){
-        if(this.queue.paused){
-            this.queue.resume();
-            this.engine.logger.silly('[ SCHEDULER ] resume work queue');
-        }
-        this.queue.empty();
+        this.queue.schedule();
     }
     callback(err, this.instance.length);
 });
@@ -129,8 +140,7 @@ scheduler.on('start',function(callback){
         if (this.started) {
             this.engine.logger.warn('[ SCHEDULER ] scheduler is running! not need start again!');
         }
-        if(this.queue.length()==0) this.queue.empty();
-        if(this.queue.idle()) this.queue.drain();
+        this.queue.schedule();
     }
     callback(err);
 });
