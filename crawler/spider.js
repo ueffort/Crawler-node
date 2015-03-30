@@ -7,7 +7,7 @@
  * 监听列表：
  *      spider(link, meta, callback(err, settings, spider_function(result, response))): 获取一个蜘蛛实例,object根据format判断
  *      pipe(info):进行管道处理,
- *      url(link, meta):进行url入队处理
+ *      link(link, meta):进行url入队处理
  * meta格式：
  * {
  *  encoding：在下载中被设置，可以是下载配置传递或者页面自动解析
@@ -32,6 +32,7 @@ var spider = function(engine, settings, init_callback){
     this.engine = engine;
     this.settings = _.defaults(settings, default_settings);
     this.spider_list = {};
+    this.runing = 0;
     engine.logger.silly('[ SPIDER ] init ', this.settings);
     event_init(this);
     init_callback(null, this);
@@ -86,6 +87,7 @@ spider.prototype.topDomain = function(domain){
 function event_init(spider){
 spider.on('spider', function(link, meta, callback){
     this.engine.logger.info('[ SPIDER ] spider ', link, meta);
+    var self = this;
     var err = null;
     //根据url获取domain
     if(!meta['spider']) meta['spider'] = this.topDomain(url.parse(link).hostname);
@@ -109,24 +111,30 @@ spider.on('spider', function(link, meta, callback){
         return callback(err);
     }
     callback(err, spider.download(link, meta), function(result, response){
+        self.running += 1;
         spider[meta['type']](link, meta, result, response);
+        self.running += 1;
     });
 });
 
-spider.on('pipe', function(link, meta, info){
+spider.on('pipe', function(link, info){
+    var self = this;
+    this.running += 1;
     this.engine.logger.info('[ SPIDER ] pipe ', info);
     this.engine.emit('pipeline', function(err, pipeline){
-        pipeline.emit('pipe', link, meta, info, function(err){
-
+        pipeline.emit('pipe', link, info, function(err){
+            self.running -= 1;
         });
     });
 });
 
-spider.on('url', function(link, meta){
-    this.engine.logger.info('[ SPIDER ] url ', link, meta);
+spider.on('link', function(link, meta){
+    var self = this;
+    this.running += 1;
+    this.engine.logger.info('[ SPIDER ] link ', link, meta);
     this.engine.emit('scheduler', function(err, scheduler){
-        scheduler.emit(link, meta, function(err){
-
+        scheduler.emit('push', link, meta, function(err){
+            self.running -= 1;
         });
     });
 });

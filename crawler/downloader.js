@@ -27,7 +27,7 @@ var default_settings = {
         ,"Accept-Language":"zh-CN,zh;q=0.8,en;q=0.6"
         ,"Cookie":""//可以是object对象
     }//请求头
-    ,format: "html"//下载后的处理格式，html：页面(默认)，传递jquery对象；txt：基本文本，转换编码，不处理；binary：2进制，不处理；js：动态页面，传递jquery对象，可以交互
+    ,format: "jquery"//下载后的处理格式，jquery：jquery页面(默认)，传递jquery对象；txt：基本文本，转换编码，不处理；binary：2进制，不处理；js：动态页面，传递jquery对象，可以交互
     ,encoding: false//下载页面的编码
     ,proxy: false//是否开启代理下载
 };
@@ -138,7 +138,7 @@ var download = function(self, settings, link, meta, finish_callback){
                     //todo 根据响应头判断格式
                     if(settings['format']=='binary') return callback(null, buff);
                     content = iconv.decode(buff, meta['encoding']);
-                    if(settings['format']=='html'){
+                    if(settings['format']=='jquery'){
                         //返回jquery对象
                         env(content, function (err, window) {
                             var $ = jquery(window);
@@ -154,10 +154,12 @@ var download = function(self, settings, link, meta, finish_callback){
             });
         });
     });
-    request.setTimeout(settings.timeout*1000,function(){
-        self.engine.logger.error('[ DOWNLOADER ] request time out !');
-        finish_callback(self.engine.error.DOWNLOADER_TIME_OUT);
-    });
+    if(settings.timeout > 0){
+        request.setTimeout(settings.timeout*1000,function(){
+            self.engine.logger.error('[ DOWNLOADER ] request time out !');
+            finish_callback(self.engine.error.DOWNLOADER_TIME_OUT);
+        });
+    }
 
     request.on('error', function(err) {
         finish_callback(err);
@@ -166,7 +168,7 @@ var download = function(self, settings, link, meta, finish_callback){
 };
 
 //完整下载完成callback函数
-var callbackDownload = function(self, queue_callback, spider_function, link, callback){
+var callbackDownload = function(self, queue_callback, spider_function, link){
     var start_date = new Date();
     return function(err, result, response){
         if(err){
@@ -178,7 +180,6 @@ var callbackDownload = function(self, queue_callback, spider_function, link, cal
         queue_callback(err, new Date() - start_date);
         self.emit('finish_download', err, link);
         if(!err) spider_function(result, response);
-        callback(err);
     }
 };
 
@@ -211,11 +212,13 @@ downloader.on('download', function(link, meta, queue_callback){
                     download(self, settings, link, meta, callbackDownload(self, function(err, milliseconds){
                         queue_callback(err, milliseconds);
                         proxy_callback(err, milliseconds);
-                    }, spider_function, link, callback));
+                    }, spider_function, link));
+                    callback(null);
                 });
-            }else
-                download(self, settings, link, meta, callbackDownload(self, queue_callback, spider_function, link, callback));
-            callback(null);
+            }else{
+                download(self, settings, link, meta, callbackDownload(self, queue_callback, spider_function, link));
+                callback(null);
+            }
         }
     ], function(err){
         if(err){

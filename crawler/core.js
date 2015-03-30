@@ -161,7 +161,7 @@ function event_init(self, option){
                     }, function (err) {
                         if (err) self.logger.debug(err);
                     });
-                    self.engine.logger.info('[ DOWNLOAD ] %s', url);
+                    self.engine.logger.silly('[ CORE ] download finish %s', url);
                 }
             });
             self.engine.emit('pipeline', callback);
@@ -178,7 +178,7 @@ function event_init(self, option){
                     },function(err){
                         if(err) self.logger.debug(err);
                     });
-                    self.engine.logger.info('[ PIPELINE ] %s', url);
+                    self.engine.logger.silly('[ CORE ] pipeline finish %s', url);
                 }
             });
             self.engine.emit('scheduler', callback);
@@ -199,7 +199,9 @@ function event_init(self, option){
             async.each(['finish_queue', 'wait_queue'], function(item, callback){
                 scheduler.on(item, function(err){
                     queue_init(self, scheduler, function(err, process_list){
-                        if(err == self.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE || self == self.engine.SCHEDULER_QUEUE_ERROR) {//不需要循环，退出进程
+                        if(err == self.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE
+                            || self == self.engine.SCHEDULER_QUEUE_ERROR) {
+                            //不需要循环，退出进程
                             for (var i in process_list) {
                                 //关闭所有进程
                                 change_process_stats(self, 2);

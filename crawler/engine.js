@@ -46,6 +46,7 @@ var error_list = {
     //pipeline error
     ,PIPELINE_PIPE_INIT_ERROR: 411
     ,PIPELINE_PIPE_EXEC_ERROR: 412
+    ,PIPELINE_PIPE_END: 413
     //proxy error
     ,PROXY_ENOUGH: 501
 
@@ -139,29 +140,21 @@ engine.prototype.init = function(){
 //避免日后的扩展需求，对核心对象都通过异步调用
 //内部尽可能的对各个对象实现解偶
 function event_init(engine){
-engine.on('instance', function(callback){
-    return callback(null, this.service.instance);
-});
+async.each(['instance', 'scheduler', 'downloader', 'proxy', 'spider', 'pipeline'],
+    function(item, callback){
+        engine.on(item, function (callback) {
+            if (!this.inited)
+                this.once('finish_init', function (err) {
+                    callback(err, this.service[item]);
+                });
+            else
+                callback(null, this.service[item]);
+        });
+        callback(null);
+    },function(err){
 
-engine.on('scheduler',function(callback){
-    return callback(null, this.service.scheduler);
-});
-
-engine.on('downloader', function(callback){
-    return callback(null ,this.service.downloader);
-});
-
-engine.on('proxy', function(callback){
-    return callback(null ,this.service.proxy);
-});
-
-engine.on('spider', function(callback){
-    return callback(null, this.service.spider);
-});
-
-engine.on('pipeline', function(callback){
-    return callback(null, this.service.pipeline);
-});
+    }
+);
 }
 
 engine.prototype.error = error_list;

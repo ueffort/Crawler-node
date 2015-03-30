@@ -7,12 +7,12 @@
 var spider;
 spider = function (factory) {
     return {
-        download: function(url, meta){
+        download: function(link, meta){
             return {};
         },
         index: function (link, meta, $) {
-            factory.emit('url', link, meta);
-            factory.emit('pipe', link, meta, 'info');
+            factory.emit('link', link, meta);
+            factory.emit('pipe', link, 'info');
         }
     }
 };

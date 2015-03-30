@@ -3,7 +3,7 @@
  * 事件列表：
  *      finish_pipe(err, link):处理完一个管道请求
  * 监听列表：
- *      pipe(link, meta, info, callback(err)): 接收一个管道请求
+ *      pipe(link, info, callback(err)): 接收一个管道请求
  */
 
 var util = require('util');
@@ -24,7 +24,6 @@ var pipeline = function(engine, settings, init_callback){
     var pipe_path = self.settings.path ? self.settings.path : self.engine.instance_name+'/pipe';
     event_init(this);
     async.map(this.settings.pipe, function(pipe_name, callback){
-        //todo 判断管道文件是否存在
         var err = null;
         try{
             var pipe = require('../'+pipe_path+'/'+pipe_name+'.js')(self.engine.settings);
@@ -42,15 +41,16 @@ var pipeline = function(engine, settings, init_callback){
 util.inherits(pipeline, events.EventEmitter);
 
 function event_init(pipeline){
-pipeline.on('pipe', function(link, meta, info, callback){
+pipeline.on('pipe', function(link, info, callback){
     var self = this;
-    this.engine.logger.info("[ PIPELINE ] pipe ", link, meta);
+    this.engine.logger.info("[ PIPELINE ] pipe ", link, info);
     async.reduce(this.pipe_list, info, function(info, pipe_map, callback){
         self.engine.logger.silly("[ PIPELINE ] pipe", pipe_map.name);
         var err = null;
         //依次传入管道中，如果返回false则结束后续管道处理
         try{
             info = pipe_map.pipe(info);
+            if(_.isNull(info) || info === false) err = self.engine.error.PIPELINE_PIPE_END;
         }catch (e){
             self.engine.logger.debug(e);
             self.engine.logger.error('[ PIPELINE ] pipe exec error :', pipe_map.name);
@@ -58,6 +58,7 @@ pipeline.on('pipe', function(link, meta, info, callback){
         }
         callback(err, info);
     },function(err, result){
+        if(err == self.engine.error.PIPELINE_PIPE_END) err = null;
         callback(err);
         self.emit('finish_pipe', err, link);
     });

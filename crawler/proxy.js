@@ -14,7 +14,7 @@ var _ = require('underscore')._;
 
 var default_settings = {
     redis: false
-    ,redis_key: 'crawler_proxy'//在redis中代理集合的key
+    ,key: 'crawler_proxy'//在redis中代理集合的key
     ,waring_num: 15//代理告警限制，还剩多少代理后发出警报
     ,download_times: 10//每个代理下载几次重新获取新代理，避免被封
 };
@@ -38,7 +38,9 @@ var proxy = function(engine, settings, init_callback){
         this.proxy_list = [];
         this.able = true;
         var self = this;
-        updateLength(self, init_callback);
+        updateLength(self, function(err, length){
+            init_callback(err, self);
+        });
     }
 };
 util.inherits(proxy, events.EventEmitter);

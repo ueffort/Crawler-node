@@ -17,7 +17,7 @@ var _ = require('underscore')._;
 
 var default_settings = {
     parallel: 4//同时开启多少个下载work
-    ,frequency: 10//每分钟的下载频率限制，最高下载数限制
+    ,frequency: 4//每分钟的下载频率限制，最高下载数限制
     ,loop: false//下载队列完成后，是否重新开始
 };
 
@@ -48,15 +48,16 @@ var scheduler = function(engine, settings, init_callback){
             if(err){
                 //todo 针对下载错误
             }
-            if(download_time_limit > milliseconds)
+            if(download_time_limit > milliseconds){
                 setTimeout(callback, download_time_limit - milliseconds);
-            else
+            }else{
                 callback();
+            }
         });
     }, this.settings.parallel);
     this.queue.empty = function(){
         if(self.instance.length==0) return ;
-        self.engine.logger.silly('[ SCHEDULER ] get url from instance queue');
+        self.engine.logger.silly('[ SCHEDULER ] queue empty, get url from instance queue');
         self.started = true;
         //填充下载队列
         async.whilst(function(){
@@ -77,17 +78,15 @@ var scheduler = function(engine, settings, init_callback){
         });
     };
     this.queue.drain = function(){
-        if(!self.instance.length){
-            if(self.started){
+        self.engine.emit('spider', function(err, spider){
+            if(spider.running > 0) return ;
+            if(self.instance.length)
+                self.queue.schedule();
+            else{
                 self.engine.logger.info('[ SCHEDULER ] instance queue is empty, finish_queue!');
                 self.emit('finish_queue', null);
-            }else{
-                self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait_queue!');
-                self.emit('wait_queue', null);
             }
-            self.engine.logger.silly('[ SCHEDULER ] pause work queue');
-            this.pause();
-        }
+        });
     };
     this.queue.schedule = function(){
         if(this.paused){
@@ -95,7 +94,10 @@ var scheduler = function(engine, settings, init_callback){
             self.engine.logger.silly('[ SCHEDULER ] resume work queue');
         }
         if(this.length()==0) this.empty();
-        if(this.idle()) this.drain();
+        if(!self.instance.length && !self.started){
+            self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait_queue!');
+            self.emit('wait_queue', null);
+        }
     };
     init_callback(null, this);
 };
@@ -146,10 +148,11 @@ scheduler.on('start',function(callback){
 });
 
 scheduler.on('push', function(link, meta, callback){
-    this.engine.logger.info("[ SCHEDULER ] pull ", link, meta);
+    this.engine.logger.info("[ SCHEDULER ] push ", link, meta);
     var err = null;
     try{
         this.instance.push([link, meta]);
+        this.queue.schedule();
     }catch(e){
         this.engine.logger.debug(e);
         this.engine.logger.error('[ SCHEDULER ] instance can not push link!');

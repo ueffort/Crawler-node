@@ -14,7 +14,7 @@ module.exports={
             'host': '192.168.59.103',
             'port': '6379'
         },
-        'redis_key': 'crawler_proxy',
+        'key': 'crawler_proxy',
         'waring_num': 15,//代理告警限制，还剩多少代理后发出警报
         'download_times': 10//每个代理下载几次重新获取新代理，避免被封
     },
