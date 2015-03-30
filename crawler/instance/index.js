@@ -1,16 +1,20 @@
 var instance = function(engine, settings){
     this.engine = engine;
     this.settings = settings;
-    this.length = 0;
+    this.url_length = 0;
+};
+
+instance.prototype.length = function(){
+    return this.url_length;
 };
 
 instance.prototype.shift = function(){
-    this.length -= 1;
+    this.url_length -= 1;
     return url_info;
 };
 
 instance.prototype.push = function(url_info){
-    this.length += 1;
+    this.url_length += 1;
 };
 
 instance.prototype.init_queue = function(){

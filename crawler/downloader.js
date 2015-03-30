@@ -177,9 +177,9 @@ var callbackDownload = function(self, queue_callback, spider_function, link){
                 err = self.engine.error.DOWNLOADER_DOWNLOAD_ERROR;
             }
         }
+        if(!err) spider_function(result, response);
         queue_callback(err, new Date() - start_date);
         self.emit('finish_download', err, link);
-        if(!err) spider_function(result, response);
     }
 };
 

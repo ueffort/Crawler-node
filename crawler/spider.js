@@ -4,6 +4,7 @@
  *      parseUrl(present, target):根据当前url返回页面中的url完整格式
  *      topDomain(url):返回url的顶级域名
  * 事件列表：
+ *      empty(err):爬虫任务执行完毕
  * 监听列表：
  *      spider(link, meta, callback(err, settings, spider_function(result, response))): 获取一个蜘蛛实例,object根据format判断
  *      pipe(info):进行管道处理,
@@ -32,7 +33,7 @@ var spider = function(engine, settings, init_callback){
     this.engine = engine;
     this.settings = _.defaults(settings, default_settings);
     this.spider_list = {};
-    this.runing = 0;
+    this.running = 0;
     engine.logger.silly('[ SPIDER ] init ', this.settings);
     event_init(this);
     init_callback(null, this);
@@ -42,25 +43,6 @@ util.inherits(spider, events.EventEmitter);
 //根据当前url返回页面中url的完整格式
 spider.prototype.absoluteLink = function(present, target){
     return url.resolve(present, target);
-    //如果是绝对链接，直接返回
-    if(target.indexOf('http')==0)
-        return target;
-    var target_obj = url.parse(target);
-    var present_obj = url.parse(present);
-    //根路径
-    var a = ['protocol', 'auth', 'host', 'port', 'hostname'];
-    for(var i=0;i< a.length;i++){
-        target_obj[a[i]] = present_obj[a[i]];
-    }
-    //相对路径
-    if(target.indexOf('/')!=0){
-        var path = present_obj.pathname.slice(0, present_obj.pathname.lastIndexOf('/') + 1);
-        var b = ['pathname', 'path', 'href'];
-        for(var i=0;i< b.length;i++){
-            target_obj[b[i]] = path+target_obj[b[i]];
-        }
-    }
-    return target_obj.format();
 };
 
 //返回当前链接的顶级域名
@@ -113,7 +95,8 @@ spider.on('spider', function(link, meta, callback){
     callback(err, spider.download(link, meta), function(result, response){
         self.running += 1;
         spider[meta['type']](link, meta, result, response);
-        self.running += 1;
+        self.running -= 1;
+        if(self.running == 0) self.emit('empty', err);
     });
 });
 
@@ -124,6 +107,7 @@ spider.on('pipe', function(link, info){
     this.engine.emit('pipeline', function(err, pipeline){
         pipeline.emit('pipe', link, info, function(err){
             self.running -= 1;
+            if(self.running == 0) self.emit('empty', err);
         });
     });
 });
@@ -135,6 +119,7 @@ spider.on('link', function(link, meta){
     this.engine.emit('scheduler', function(err, scheduler){
         scheduler.emit('push', link, meta, function(err){
             self.running -= 1;
+            if(self.running == 0) self.emit('empty', err);
         });
     });
 });

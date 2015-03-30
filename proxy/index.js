@@ -3,17 +3,18 @@ var redis = require('redis');
 var instance = function(engine, settings){
     this.engine = engine;
     this.settings = settings;
-    this.length = 0;
     this.queue = [];
 };
 
+instance.prototype.length = function(){
+    return this.queue.length;
+}
+
 instance.prototype.shift = function(){
-    this.length -= 1;
     return this.queue.shift();
 };
 
 instance.prototype.push = function(url_info){
-    this.length += 1;
     return this.queue.push(url_info);
 };
 

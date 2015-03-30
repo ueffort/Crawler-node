@@ -56,12 +56,13 @@ var scheduler = function(engine, settings, init_callback){
         });
     }, this.settings.parallel);
     this.queue.empty = function(){
-        if(self.instance.length==0) return ;
+        var length = self.instance.length();
+        if(length==0) return ;
         self.engine.logger.silly('[ SCHEDULER ] queue empty, get url from instance queue');
         self.started = true;
         //填充下载队列
         async.whilst(function(){
-            return self.queue.idle() && self.instance.length > 0;
+            return self.queue.length() == 0 && self.instance.length() > 0;
         }, function(callback){
             var url_info = null;
             try{
@@ -70,17 +71,24 @@ var scheduler = function(engine, settings, init_callback){
                 self.engine.logger.debug(e);
             }
             self.queue.push({url: url_info[0], meta: url_info[1]});
-            callback(self.instance.length > 0 ? null: self.engine.error.SCHEDULER_QUEUE_EMPTY);
+            callback(null);
         }, function(err) {
-            if(self.instance.length==0){
+            if(self.instance.length()==0){
                 self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait work end');
             }
         });
     };
     this.queue.drain = function(){
-        self.engine.emit('spider', function(err, spider){
-            if(spider.running > 0) return ;
-            if(self.instance.length)
+        async.waterfall([
+            function(callback){
+                self.engine.emit('spider', callback);
+            },
+            function(spider, callback){
+                if(spider.running == 0) return callback();
+                spider.once('empty', callback);
+            }
+        ],function(err){
+            if(self.instance.length())
                 self.queue.schedule();
             else{
                 self.engine.logger.info('[ SCHEDULER ] instance queue is empty, finish_queue!');
@@ -94,7 +102,7 @@ var scheduler = function(engine, settings, init_callback){
             self.engine.logger.silly('[ SCHEDULER ] resume work queue');
         }
         if(this.length()==0) this.empty();
-        if(!self.instance.length && !self.started){
+        if(!self.instance.length() && !self.started){
             self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait_queue!');
             self.emit('wait_queue', null);
         }
@@ -110,20 +118,22 @@ scheduler.on('init_queue', function(callback){
         return callback(this.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE);
     this.engine.logger.info('[ SCHEDULER ] start init instance queue!');
     var err = null;
+    var length = 0;
     try{
-        if(!this.instance.length) this.instance.init_queue();
-        this.engine.logger.silly('[ SCHEDULER ] instance init queue length ',this.instance.length);
+        if(!this.instance.length()) this.instance.init_queue();
+        length = this.instance.length();
+        this.engine.logger.silly('[ SCHEDULER ] instance init queue length ', length);
     }catch(e){
         this.engine.logger.debug(e);
     }
-    if(!this.instance.length) {
+    if(!length) {
         this.engine.logger.error('[ SCHEDULER ] instance has 0 queue length after init_queue!');
         err = this.engine.error.SCHEDULER_QUEUE_ERROR;
     }
     if(!err){
         this.queue.schedule();
     }
-    callback(err, this.instance.length);
+    callback(err, length);
 });
 
 scheduler.on('stop',function(callback){
