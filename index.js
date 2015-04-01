@@ -55,9 +55,10 @@ program
 
 /* 监控实例 */
 program
-    .command('status [instance]')
+    .command('status <instance>')
     .description('show status for instance running')
-    .option('-s, --simple <simple>', "one variable status")
+    .option('-p, --process <simple>', "one process status")
+    .option('-l, --list', "show instance running process")
     .action(function(instance, options){
         crawler(instance).status(options);
     });

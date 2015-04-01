@@ -6,6 +6,8 @@
  * 监听列表：
  *      start(callback(err)): 启动
  *      stop(callback(err))：关闭
+ *      pause(callback(err))：暂停
+ *      resume(callback(err))：恢复
  *      init_queue(callback(err, queue_length))：初始化一个时间分片
  *      push(link, meta, callback(err)):将url入队操作
  */
@@ -115,7 +117,7 @@ function event_init(scheduler){
 scheduler.on('init_queue', function(callback){
     //避免第一次执行实例，队列为空
     if(!this.settings.loop && this.started)
-        return callback(this.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE);
+        return callback(this.engine.error.SCHEDULER_NO_NEED_LOOP_QUEUE);
     this.engine.logger.info('[ SCHEDULER ] start init instance queue!');
     var err = null;
     var length = 0;
@@ -153,6 +155,30 @@ scheduler.on('start',function(callback){
             this.engine.logger.warn('[ SCHEDULER ] scheduler is running! not need start again!');
         }
         this.queue.schedule();
+    }
+    callback(err);
+});
+
+scheduler.on('pause', function(callback){
+    this.engine.logger.info("[ SCHEDULER ] pause");
+    var err = null;
+    if(!this.started){
+        this.engine.logger.error('[ SCHEDULER ] scheduler not start, so can not pause');
+        err = this.engine.error.SCHEDULER_PAUSE_ERROR;
+    }else{
+        this.queue.pause();
+    }
+    callback(err);
+});
+
+scheduler.on('resume', function(callback){
+    this.engine.logger.info("[ SCHEDULER ] resume");
+    var err = null;
+    if(!this.queue.paused){
+        this.engine.logger.error('[ SCHEDULER ] queue is not paused, so not need resume');
+        err = this.engine.error.SCHEDULER_RESUME_ERROR;
+    }else{
+        this.queue.resume();
     }
     callback(err);
 });

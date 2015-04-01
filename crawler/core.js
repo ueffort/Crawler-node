@@ -13,12 +13,15 @@ var async = require('async');
 var _ = require('underscore')._;
 var util = require('util');
 
+var logic = require('./tools/logic.js');
+
 try{
     /* 必要的初始化操作 */
     var settings = require('../settings.js');
     winston.loggers.add('core', JSON.parse(JSON.stringify(settings.logger)));
     var logger = winston.loggers.get('core');
     var store = redis.createClient(settings.redis.port, settings.redis.host);
+    var subscription = redis.createClient(settings.redis.port, settings.redis.host);
 }catch(e){
     console.log(e);
     process.exit(1);
@@ -47,19 +50,37 @@ try{
  *          end_time:结束事件
  *      }
  *  ]
- *  $instance_$process:{//每个运行中的process都拥有一个hkey，哈希表，设定有效期
- *      stats:0,1,2,3//当前进程状态,0:启动中 1:运行中，2关闭中，3暂停中，4队列为空停止中，5初始化队列中，6可重新执行
- *      start_time:启动时间
- *      download:该进程的下载次数
- *      pipe:该进程的抓取信息次数
- *      queue:当前的下载队列状态，几个在运行中
- *      last_heart_time:最后次心跳检测时间
- *      host_info:运行的主机信息（hostname,pid）
- *  }
- *  proxy:(//总的代理列表，有序集合
+ *  crawler_proxy:(//总的代理列表，有序集合
  *      ip:port score://根据score的正序获取一个代理
  *  )
  * }
+ *
+ * 进程事件处理，通过redis的订阅/发布实现
+ *  每个进程订阅1个频道
+ *      $instance_name.$process
+ *  对进程的操作可以通过发送消息到
+ *      模式频道：$instance_name.*
+ *      具体频道：$instance_name.$process
+ *  进程的响应消息都会发送到
+ *      $message.$instance_name.$process
+ *  可以订阅1个频道
+ *      模式频道：$message.$instance_name.*
+ *      具体频道：$message.$instance_name.$process
+ *  message列表：
+ *      pause：暂停进程，返回值：1成功，0失败
+ *      lock：锁定并暂停进程状态，返回值：1成功，0失败
+ *      unlock：解锁并恢复进程状态，返回值：1成功，0失败
+ *      resume：恢复进程，返回值：1成功，0失败
+ *      stop：停止进程，返回值：1成功，0失败
+ *      status：进程当前状态，返回值（json）
+ *          {
+ *              stats:0,1,2,3//当前进程状态,0:启动中 1:运行中，2暂停中，3队列为空停止中，4初始化队列中
+ *              start_time:启动时间
+ *              download:该进程的下载次数
+ *              pipe:该进程的抓取信息次数
+ *              queue:当前的下载队列状态，几个在运行中
+ *              host_info:运行的主机信息（hostname,pid）
+ *          }
  * 日志记录：
  *      调用者判断错误，传递错误（更改为自身错误）
  *      自身监听者及触发自身写日志
@@ -69,274 +90,162 @@ try{
  *
  */
 
-function change_process_stats(self, stats){
-    self.store.hset(self.process_name, 'stats', stats);
-    self.stats = stats;
-}
-
-function queue_init(self, scheduler, callback){
-    self.logger.silly('[ CORE ] queue is empty, start init!');
-    change_process_stats(self, 4);
-    //获取所有进程列表
-    self.store.keys(self.process_list, function(err, process_list){
-        self.logger.silly('[ CORE ] process_list ', process_list);
-        async.filter(process_list, function(process_name, callback){
-            if(process_name == self.process_name) return callback(false);
-            self.store.hget(process_name, 'stats', function(error, result){
-                callback(result != 4);
-            });
-        }, function(running_process){
-            self.logger.silly('[ CORE ] running_process', running_process);
-            //所有进程都执行完毕
-            if(running_process.length > 1) return callback(self.engine.error.CORE_WAIT_INSTANCE_PROCESS, process_list);//中断async
-            //注册为初始化进程
-            change_process_stats(self, 5);
-            //获取所有单个时间分片的数据
-            async.map(['download','pipe','start_time','run_seconds','init_length'],function(item,callback){
-                self.store.hget(self.instance_name, item, function(error, result){
-                    callback(error, result);
-                });
-            }, function(err, result){
-                //非初次初始化，记录时间分片信息
-                if(!_.isUndefined(result[4]) && result[4] == 0){
-                    self.logger.silly('[ CORE ] finish time!', result);
-                    self.store.rpush(self.instance_name+'|time', JSON.stringify({
-                        download:result[0],
-                        pipe:result[1],
-                        start_time:result[2],
-                        run_seconds:result[3],
-                        init_length:result[4],
-                        end_time:new Date().getMilliseconds()
-                    }));
-                }
-                //初始化时间片信息
-                async.each(['current_download', 'current_pipe', 'current_start_time', 'current_run_time', 'current_init_length'],function(item, callback){
-                    self.store.hset(self.instance_name, item, 0);
-                    callback();
-                },function(err){
-                    if(err) callback(err);
-                });
-            });
-            //单个进程执行初始化队列操作
-            scheduler.emit('init_queue', function(err, length){
-                if(err) return callback(err, process_list);
-                self.store.hset(self.instance_name, 'current_init_length', length);
-                self.store.hset(self.instance_name, 'current_start_time', new Date().getMilliseconds());
-                for(var i in process_list){
-                    //恢复所有进程的状态
-                    self.store.hset(process_list[i], 'stats', 6);
-                }
-                change_process_stats(self, 6);
-                callback(null);
-            });
-        });
-    });
-}
-
-function event_init(self, option){
-    //组件初始化操作
-    async.waterfall([
-        //监听初始化事件
-        function(callback) {
-            self.engine.on('finish_init', function(err){
-                if(err){
-                    callback(err);
-                }else{
-                    self.engine.emit('downloader', callback);
-                }
-            });
-            //绑定事件后初始化
-            self.engine.init();
-        },
-        //初始化完毕
-        function(downloader, callback) {
-            downloader.on('finish_download', function (err, url) {
-                if (!err) {
-                    async.each([[self.instance_name, 'download'],
-                        [self.instance_name, 'current_download'],
-                        [self.process_name, 'download']
-                    ], function (item, callback) {
-                        self.store.hincrby(item[0], item[1], 1);
-                        callback();
-                    }, function (err) {
-                        if (err) self.logger.debug(err);
-                    });
-                    self.engine.logger.silly('[ CORE ] download finish %s', url);
-                }
-            });
-            self.engine.emit('pipeline', callback);
-        },
-        function(pipeline, callback){
-            pipeline.on('finish_pipeline', function(err, url){
-                if(!err){
-                    async.each([[self.instance_name, 'pipe'],
-                        [self.instance_name, 'current_pipe'],
-                        [self.process_name, 'pipe']
-                    ], function(item, callback){
-                        self.store.hincrby(item[0], item[1], 1);
-                        callback();
-                    },function(err){
-                        if(err) self.logger.debug(err);
-                    });
-                    self.engine.logger.silly('[ CORE ] pipeline finish %s', url);
-                }
-            });
-            self.engine.emit('scheduler', callback);
-        },
-        //获取scheduler
-        function(scheduler, callback) {
-            //设定退出逻辑
-            process.on('exit',function(){
-                scheduler.emit('stop',function(err){
-                    if(err){
-                        //todo 处理退出失败
-                    }
-                    //删除进程信息
-                    self.store.del(self.process_name);
-                    self.store.end();
-                });
-            });
-            async.each(['finish_queue', 'wait_queue'], function(item, callback){
-                scheduler.on(item, function(err){
-                    queue_init(self, scheduler, function(err, process_list){
-                        if(err == self.engine.error.SCHEDULER_NO_NEED_INIT_QUEUE
-                            || self == self.engine.SCHEDULER_QUEUE_ERROR) {
-                            //不需要循环，退出进程
-                            for (var i in process_list) {
-                                //关闭所有进程
-                                change_process_stats(self, 2);
-                            }
-                            self.engine.logger.info('[ CORE ] finish queue, no need loop crawler, exec exit');
-                            process.exit();
-                        }else if(err == self.engine.error.CORE_WAIT_INSTANCE_PROCESS){
-                            err = null;
-                            self.engine.logger.info('[ CORE ] instance has running process, wait!');
-                        }
-                    });
-                });
-                callback(null);
-            }, function(err){
-                scheduler.emit('start', function(err){
-                    if(err) {
-                        process.exit(1);
-                    }else{
-                        change_process_stats(self, 1);
-                    }
-                });
-                callback(null);
-            });
-        }
-    ], function (err) {
-        if(err && !_.isNumber(err)){
-            self.engine.logger.debug(err);
-            err = self.engine.error.CORE_ERROR;
-        }
-        if(err){
-            self.engine.logger.error('[ CORE ] event init  has error(%s),exit', err);
-            process.exit(1);
-        }
-    });
+//生成固定的进程名，监听频道名
+function make_process(instance_name, process_name){
+    if(!process_name) process_name = crypto.createHash('md5').update(self.host_info).digest('hex').slice(0,5);
+    return instance_name+'.'+process_name;
 }
 
 var core = function(instance_name){
     this.instance_name = instance_name;
-    this.process_list = instance_name+'_*';
+    this.instance_process_list = instance_name+'.*';
+    this.instance_time_list = instance_name+'|time';
     this.start_time = new Date().getMilliseconds();
     this.logger = logger;
     this.store = store;
+    this.lock = false;
     this.settings = settings;
     this.stats = 0;
+    this.download = 0;
+    this.pipe = 0;
     this.engine = new (require('./engine.js'))(this);
     var self = this;
     return {
         start:function(options){
             self.host_info = os.hostname+':'+process.pid;
-            self.process_name = self.instance_name+'_'+ crypto.createHash('md5').update(self.host_info).digest('hex').slice(0,5);
-            event_init(self, options);
+            self.process_name = make_process(instance_name);
+            logic.event_init(self, options);
             //开始进程信息初始化
-            self.store.exists(self.instance_name, function(error, result){
+            store.exists(self.instance_name, function(error, result){
                 if(!result){
-                    self.store.hset(self.instance_name, 'init_time', self.start_time);
+                    store.hset(self.instance_name, 'init_time', self.start_time);
                 }
             });
-            self.store.hset(self.process_name, 'stats', 0);
-            self.store.hset(self.process_name, 'start_time', self.start_time);
-            self.store.hset(self.process_name, 'host_info', self.host_info);
-            self.store.expire(self.process_name, 5);
+            subscription.on('message', function(channel, message){
+                var response_channel = message + '.' + self.process_name;
+                if(message == 'stop'){
+                    if(self.lock) return store.publish(response_channel, 0);
+                    logic.exit(self, 0, response_channel);
+                }else if(message == 'pause'){
+                    if(self.lock) return store.publish(response_channel, 0);
+                    self.engine.emit('scheduler',function(err, scheduler){
+                        scheduler.emit('pause', function(err){
+                            if(!err) logic.change_process_stats(self, 2);
+                            store.publish(response_channel, err ? 0 : 1);
+                        });
+                    });
+                }else if(message == 'resume'){
+                    if(self.lock) return store.publish(response_channel, 0);
+                    self.engine.emit('scheduler', function(err, scheduler){
+                        scheduler.emit('resume', function(err){
+                            if(!err) logic.change_process_stats(self, 1);
+                            store.publish(response_channel, err ? 0 : 1);
+                        })
+                    });
+                }else if(message == 'status'){
+                    self.engine.emit('scheduler', function(err, scheduler){
+                        store.publish(response_channel, JSON.stringify({
+                            stats: self.stats,
+                            start_time: self.start_time,
+                            host_info: self.host_info,
+                            download: self.download,
+                            pipe: self.pipe,
+                            lock: self.lock,
+                            queue: scheduler.queue.running()
+                        }));
+                    });
+                }else if(message == 'lock'){
+                    if(self.lock){
+                        logger.warn('[ CORE ] core is locked !');
+                        return store.publish(response_channel, 0);
+                    }
+                    self.lock = true;
+                    self.engine.emit('scheduler',function(err, scheduler){
+                        scheduler.emit('pause', function(err){
+                            if(!err) logic.change_process_stats(self, 2);
+                            store.publish(response_channel, err ? 0 : 1);
+                        });
+                    });
+                }else if(message == 'unlock'){
+                    if(!self.lock){
+                        logger.warn('[ CORE ] core not lock!');
+                        return store.publish(response_channel, 0);
+                    }
+                    self.lock = false;
+                    self.engine.emit('scheduler',function(err, scheduler){
+                        scheduler.emit('resume', function(err){
+                            if(!err) logic.change_process_stats(self, 1);
+                            store.publish(response_channel, err ? 0 : 1);
+                        });
+                    });
+                    store.publish(response_channel, 1);
+                }
+            });
+            subscription.subscript(self.process_name);
+            logic.change_process_stats(self, 0);
             //保持redis的状态统计
             setInterval(function(){
-                if(self.stats == 1) self.store.hincrby(self.instance_name, 'current_run_seconds', 1);
-                self.store.hget(self.process_name, 'stats', function(error, result){
-                    if(result == 6){//可恢复状态
-                        self.engine.logger.info('[ CORE ] stats is 6, change to run');
-                        self.engine.emit('scheduler', function(err, scheduler){
-                            scheduler.emit('start', function(){
-                                change_process_stats(self, 1);
-                            });
-                        });
-                    }else if(result == 2){//关闭状态,手动关闭
-                        self.engine.logger.info('[ CORE ] stats is 2, need close, auto exit');
-                        process.exit();
-                    }
-                });
-                self.engine.emit('scheduler', function(err, scheduler){
-                    if(err) self.engine.logger.debug(err);
-                    self.store.hset(self.process_name, 'queue', scheduler.queue.running());
-                });
-                self.store.hset(self.process_name, 'last_heart_time', new Date().getMilliseconds());
-                self.store.expire(self.process_name, 30);
+                if(self.stats == 1) store.hincrby(self.instance_name, 'current_run_seconds', 1);
+                store.expire(self.process_name, 10);
             },1000);
         },
         stop:function(options){
             var self = this;
-            store.exists(self.instance_name, function(error, value){
-                if(!value) return console.log(self.instance_name+'is not exist');
-                store.keys(self.process_list, function(error, result){
-                    if(error){
-                        console.log(self.instance_name+':is not running');
-                    } else {
-                        for (var i in result) {
-                            store.hset(result[i], 'stats', 2);
-                        }
-                        setTimeout(function(){
-                            store.keys(self.process_list, function(error, result){
-                                if(error){
-                                    console.log(self.instance_name+':stoped');
-                                }else {
-                                    console.log(self.instance_name + ':running  %s', result.length);
-                                }
-                            })
-                        },2000);
+            store.pubsub('CHANNELS', self.instance_process_list, function(err, result){
+                if(err) return logger.error(err);
+                if(result.length == 0) return logger.info(self.instance_name+'is not running');
+                logger.info(self.instance_name+':', result);
+                var process_length = result.length;
+                var stop_length = 0;
+                subscription.on('pmessage', function(pattern, channel, message){
+                    if(message == 1){
+                        logger.info(channel+':stoped');
+                        stop_length+=1;
+                    }else if(message == 2){
+                        logger.info(channel+':waiting');
+                    }else{
+                        logger.info(channel+':return->'+message);
+                    }
+                    if(process_length == stop_length){
+                        logger.info(self.instance_name+': all stop');
+                        process.exit();
                     }
                 });
-            })
+                subscription.psubscribe('stop.'+self.instance_process_list);
+                _.each(result, function(i, item){
+                    store.publish(item, 'stop');
+                });
+            });
         },
         status:function(options){
             var self = this;
-            store.hkeys(self.instance_name, function(error, result){
-                if(!result) return console.log(self.instance_name+'is not exist');
-                for(var i in result){
-                    store.hget(self.instance_name, result[i], function(e, r){
-                        console.log(result[i]+'='+r);
-                    });
-                }
-            });
-            if(options.process == '*'){
-                store.keys(self.process_list, function(error, result){
-                    for(var i in result){
-                        console.log('process_name:%s', result[i]);
-                    }
+            if(options.list){
+                store.pubsub('CHANNELS', self.instance_process_list, function(err, result){
+                    if(err) return logger.error(err);
+                    if(result.length == 0) return logger.info(self.instance_name+'is not running');
+                    logger.info('process_name:', result);
                 });
             }else if(options.process){
-                var process_name = self.instance_name+'_'+options.process;
-                store.hkeys(process_name, function(error, result){
-                    if(!result) return console.log(options.process+'is not exist');
-                    console.log(options.process+':');
-                    for(var i in result){
-                        store.hget(process_name, result[i], function(e, r){
-                            console.log(result[i]+'='+r);
+                var process_name = make_process(instance_name, options.process);
+                store.pubsub('NUMSUB', process_name, function(err, result){
+                    if(err) return logger.error(err);
+                    if(result[1] == 0) return logger.info(process_name+'is not exist');
+                    subscription.on('message', function(pattern, channel, message){
+                        logger.info(message);
+                        process.exit();
+                    });
+                    subscription.psubscribe('status.'+process_name);
+                    store.publish(process_name, 'status');
+                });
+            }else{
+                store.hkeys(self.instance_name, function(err, result){
+                    if(err) return logger.error(err);
+                    if(!result) return logger.info(self.instance_name+'is not exist');
+                    _.each(result, function(i, item){
+                        store.hget(self.instance_name, item, function(err, result){
+                            logger.info(item+':'+result);
                         });
-                    }
+                    });
                 });
             }
         }
