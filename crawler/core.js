@@ -91,8 +91,8 @@ try{
  */
 
 //生成固定的进程名，监听频道名
-function make_process(instance_name, process_name){
-    if(!process_name) process_name = crypto.createHash('md5').update(self.host_info).digest('hex').slice(0,5);
+function make_process(instance_name, process_name, host_info){
+    if(!process_name) process_name = crypto.createHash('md5').update(host_info).digest('hex').slice(0,5);
     return instance_name+'.'+process_name;
 }
 
@@ -113,7 +113,7 @@ var core = function(instance_name){
     return {
         start:function(options){
             self.host_info = os.hostname+':'+process.pid;
-            self.process_name = make_process(instance_name);
+            self.process_name = make_process(instance_name, null, self.host_info);
             logic.event_init(self, options);
             //开始进程信息初始化
             store.exists(self.instance_name, function(error, result){
@@ -181,7 +181,7 @@ var core = function(instance_name){
                     store.publish(response_channel, 1);
                 }
             });
-            subscription.subscript(self.process_name);
+            subscription.subscribe(self.process_name);
             logic.change_process_stats(self, 0);
             //保持redis的状态统计
             setInterval(function(){

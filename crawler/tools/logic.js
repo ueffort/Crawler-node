@@ -37,7 +37,7 @@ var queue_init = function(self, scheduler, callback){
                 });
             }, function(err, result){
                 //非初次初始化，记录时间分片信息
-                if(!_.isUndefined(result[4]) && result[4] == 0){
+                if(!_.isUndefined(result[4]) && result[4] > 0){
                     self.logger.silly('[ CORE ] finish time!', result);
                     self.store.rpush(self.instance_time_list, JSON.stringify({
                         download:result[0],
@@ -51,9 +51,9 @@ var queue_init = function(self, scheduler, callback){
                 //初始化时间片信息
                 async.each(field_list,function(item, callback){
                     self.store.hset(self.instance_name, item, 0);
-                    callback();
+                    callback(null);
                 },function(err){
-                    if(err) callback(err);
+                    callback(err);
                 });
             });
         }, function(callback){
@@ -124,66 +124,62 @@ var event_init = function(self, option){
         //获取scheduler
         function(scheduler, callback) {
             async.each(['finish_queue', 'wait_queue'], function(item, callback){
-                async.waterfall([
-                    function(callback){
-                        scheduler.on(item, callback);
-                    },
-                    function(callback){
-                        change_process_stats(self, 3);
-                        //获取所有进程列表
-                        self.store.pubsub('CHANNELS', self.instance_process_list, function(err, process_list){
-                            logger.silly('[ CORE ] process_list ', process_list);
+                scheduler.on(item, function(err){
+                    async.waterfall([
+                        function(callback){
+                            change_process_stats(self, 3);
+                            //获取所有进程列表
+                            self.store.pubsub('CHANNELS', self.instance_process_list, function(err, process_list){
+                                logger.silly('[ CORE ] process_list ', process_list);
+                                process_list = _.filter(process_list, function(i,item){
+                                    return item != self.process_name;
+                                });
+                                async.map(process_list, function(item, callback){
+                                    self.store.hget(item, 'stats', callback);
+                                },function(err, result){
+                                    _.each(result, function(i, stats){
+                                        if(stats == 1) callback(self.engine.error.CORE_WAIT_INSTANCE_PROCESS);
+                                        if(stats == 4) callback(self.engine.error.CORE_INIT_INSTANCE_PROCESS);
+                                    });
+                                    callback(null, process_list);
+                                });
+                            });
+                        },
+                        function(process_list, callback){
+                            //锁定所有进程
                             _.each(process_list, function(i, item){
-                                self.store.publish(item, 'stats');
+                                self.store.publish(item, 'lock');
                             });
-                            process_list = _.filter(process_list, function(i,item){
-                                return item != self.process_name;
+                            //注册为初始化进程
+                            change_process_stats(self, 4);
+                            queue_init(self, scheduler, function(err){
+                                if (err) {
+                                    _.each(process_list, function (i, item) {
+                                        self.store.publish(item, 'stop');
+                                    });
+                                }else{
+                                    //恢复所有进程的状态
+                                    _.each(process_list, function(i, item){
+                                        self.store.publish(item, 'unlock');
+                                    });
+                                    change_process_stats(self, 1);
+                                }
+                                callback(err);
                             });
-                            async.map(process_list, function(item, callback){
-                                self.store.hget(item, 'stats', callback);
-                            },function(err, result){
-                                _.each(result, function(i, stats){
-                                    if(stats == 1) callback(self.engine.error.CORE_WAIT_INSTANCE_PROCESS);
-                                    if(stats == 4) callback(self.engine.error.CORE_INIT_INSTANCE_PROCESS);
-                                });
-                                callback(null, process_list);
-                            });
-                        });
-                    },
-                    function(process_list, callback){
-                        //锁定所有进程
-                        _.each(process_list, function(i, item){
-                            self.store.publish(item, 'lock');
-                        });
-                        //注册为初始化进程
-                        change_process_stats(self, 4);
-                        queue_init(self, scheduler, function(err){
-                            if (err) {
-                                _.each(process_list, function (i, item) {
-                                    self.store.publish(item, 'stop');
-                                });
-                            }else{
-                                //恢复所有进程的状态
-                                _.each(process_list, function(i, item){
-                                    self.store.publish(item, 'unlock');
-                                });
-                                change_process_stats(self, 1);
-                            }
-                            callback(err);
-                        });
-                    }
-                ],function(err) {
-                    if (err == self.engine.error.SCHEDULER_NO_NEED_LOOP_QUEUE
-                        || self == self.engine.error.SCHEDULER_QUEUE_ERROR) {
-                        self.engine.logger.info('[ CORE ] finish queue, no need loop crawler, exec exit');
-                        exit(self);
-                    } else if (err == self.engine.error.CORE_WAIT_INSTANCE_PROCESS) {
-                        err = null;
-                        self.engine.logger.info('[ CORE ] instance has running process, wait!');
-                    }else if(err == self.engine.error.CORE_INIT_INSTANCE_PROCESS){
-                        err = null;
-                        self.engine.logger.info('[ CORE ] instance init process runing, wait!');
-                    }
+                        }
+                    ], function(err) {
+                        if (err == self.engine.error.SCHEDULER_NO_NEED_LOOP_QUEUE
+                            || self == self.engine.error.SCHEDULER_QUEUE_ERROR) {
+                            self.engine.logger.info('[ CORE ] finish queue, no need loop crawler, exec exit');
+                            exit(self);
+                        } else if (err == self.engine.error.CORE_WAIT_INSTANCE_PROCESS) {
+                            err = null;
+                            self.engine.logger.info('[ CORE ] instance has running process, wait!');
+                        }else if(err == self.engine.error.CORE_INIT_INSTANCE_PROCESS){
+                            err = null;
+                            self.engine.logger.info('[ CORE ] instance init process runing, wait!');
+                        }
+                    })
                 });
                 callback(null);
             }, function(err){
