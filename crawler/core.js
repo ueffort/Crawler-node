@@ -123,6 +123,7 @@ var core = function(instance_name){
             });
             subscription.on('message', function(channel, message){
                 var response_channel = message + '.' + self.process_name;
+                logger.info('[ MESSAGE ] accept message:', message);
                 if(message == 'stop'){
                     if(self.lock) return store.publish(response_channel, 0);
                     logic.exit(self, 0, response_channel);
@@ -190,10 +191,9 @@ var core = function(instance_name){
             },1000);
         },
         stop:function(options){
-            var self = this;
             store.pubsub('CHANNELS', self.instance_process_list, function(err, result){
-                if(err) return logger.error(err);
-                if(result.length == 0) return logger.info(self.instance_name+'is not running');
+                if(err) return logger.error(err) && process.exit();
+                if(result.length == 0) return logger.info(self.instance_name+' is not running') && process.exit();
                 logger.info(self.instance_name+':', result);
                 var process_length = result.length;
                 var stop_length = 0;
@@ -218,7 +218,6 @@ var core = function(instance_name){
             });
         },
         status:function(options){
-            var self = this;
             if(options.list){
                 store.pubsub('CHANNELS', self.instance_process_list, function(err, result){
                     if(err) return logger.error(err);

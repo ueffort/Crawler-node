@@ -1,9 +1,8 @@
 /**
- * Created by gaojie on 15/3/22.
- * 收集新的代理地址，存入redis，供爬虫的代理模块使用
+ * 基本的实例，单机队列控制
+ * @param engine
+ * @param settings
  */
-var redis = require('redis');
-
 var instance = function(engine, settings){
     this.engine = engine;
     this.settings = settings;
