@@ -1,5 +1,6 @@
 /**
  * Created by gaojie on 15/4/1.
+ * core的核心逻辑处理
  */
 var async = require('async');
 var _ = require('underscore')._;
@@ -13,12 +14,12 @@ var change_process_stats = function(self, stats){
 var exit = function(self, return_stats, channel){
     self.store.del(self.process_name);
     self.engine.emit('scheduler', function(err, scheduler){
-        if(err && channel) return store.publish(channel, 0);
+        if(err && channel) return self.store.publish(channel, 0);
         scheduler.emit('stop',function(err){
             if(err){
                 //todo 处理退出失败
             }
-            if(channel) store.publish(channel, err ? 0 : 1);
+            if(channel) self.store.publish(channel, err ? 0 : 1);
             process.exit(return_stats);
         });
     });
@@ -210,4 +211,4 @@ module.exports = {
     exit: exit,
     queue_init: queue_init,
     event_init: event_init
-}
+};

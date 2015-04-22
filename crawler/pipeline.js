@@ -1,7 +1,7 @@
 /**
  * 管道处理
  * 事件列表：
- *      finish_pipe(err, link):处理完一个管道请求
+ *      finish_pipeline(err, link):处理完一个管道请求
  * 监听列表：
  *      pipe(link, info, callback(err)): 接收一个管道请求
  */
@@ -60,7 +60,7 @@ pipeline.on('pipe', function(link, info, callback){
     },function(err, result){
         if(err == self.engine.error.PIPELINE_PIPE_END) err = null;
         callback(err);
-        self.emit('finish_pipe', err, link);
+        self.emit('finish_pipeline', err, link);
     });
 });
 }

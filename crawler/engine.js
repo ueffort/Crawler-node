@@ -155,7 +155,9 @@ async.each(['instance', 'scheduler', 'downloader', 'proxy', 'spider', 'pipeline'
         });
         callback(null);
     },function(err){
-
+        if(err){
+            //todo 初始化失败
+        }
     }
 );
 }

@@ -4,8 +4,7 @@
  * @returns {}
  */
 
-var spider;
-spider = function (factory) {
+var spider = function (factory) {
     return {
         download: function(link, meta){
             return {};

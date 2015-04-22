@@ -97,19 +97,19 @@ function make_process(instance_name, process_name, host_info){
 }
 
 var core = function(instance_name){
-    this.instance_name = instance_name;
-    this.instance_process_list = instance_name+'.*';
-    this.instance_time_list = instance_name+'|time';
-    this.start_time = new Date().getMilliseconds();
-    this.logger = logger;
-    this.store = store;
-    this.lock = false;
-    this.settings = settings;
-    this.stats = 0;
-    this.download = 0;
-    this.pipe = 0;
-    this.engine = new (require('./engine.js'))(this);
-    var self = this;
+    var self = {};
+    self.instance_name = instance_name;
+    self.instance_process_list = instance_name+'.*';
+    self.instance_time_list = instance_name+'|time';
+    self.start_time = new Date().getMilliseconds();
+    self.logger = logger;
+    self.store = store;
+    self.lock = false;
+    self.settings = settings;
+    self.stats = 0;
+    self.download = 0;
+    self.pipe = 0;
+    self.engine = new (require('./engine.js'))(self);
     return {
         start:function(options){
             self.host_info = os.hostname+':'+process.pid;
@@ -192,8 +192,13 @@ var core = function(instance_name){
         },
         stop:function(options){
             store.pubsub('CHANNELS', self.instance_process_list, function(err, result){
-                if(err) return logger.error(err) && process.exit();
-                if(result.length == 0) return logger.info(self.instance_name+' is not running') && process.exit();
+                if(err){
+                    logger.error(err);
+                    process.exit();
+                }else if(result.length == 0){
+                    logger.info(self.instance_name+':is not running');
+                    process.exit();
+                }
                 logger.info(self.instance_name+':', result);
                 var process_length = result.length;
                 var stop_length = 0;
@@ -212,7 +217,7 @@ var core = function(instance_name){
                     }
                 });
                 subscription.psubscribe('stop.'+self.instance_process_list);
-                _.each(result, function(i, item){
+                _.each(result, function(item){
                     store.publish(item, 'stop');
                 });
             });
@@ -220,31 +225,53 @@ var core = function(instance_name){
         status:function(options){
             if(options.list){
                 store.pubsub('CHANNELS', self.instance_process_list, function(err, result){
-                    if(err) return logger.error(err);
-                    if(result.length == 0) return logger.info(self.instance_name+'is not running');
-                    logger.info('process_name:', result);
+                    if(err){
+                        logger.error(err);
+                    }else if(result.length == 0){
+                        logger.info(self.instance_name+':is not running');
+                    }else{
+                        logger.info('process_name:', result);
+                    }
+                    process.exit();
                 });
             }else if(options.process){
                 var process_name = make_process(instance_name, options.process);
                 store.pubsub('NUMSUB', process_name, function(err, result){
-                    if(err) return logger.error(err);
-                    if(result[1] == 0) return logger.info(process_name+'is not exist');
-                    subscription.on('message', function(pattern, channel, message){
-                        logger.info(message);
+                    if(err){
+                        logger.error(err);
                         process.exit();
-                    });
-                    subscription.psubscribe('status.'+process_name);
-                    store.publish(process_name, 'status');
+                    }else if(result[1] == 0){
+                        logger.info(process_name+':is not exist');
+                        process.exit();
+                    }else{
+                        subscription.on('message', function(pattern, channel, message){
+                            logger.info(message);
+                            process.exit();
+                        });
+                        subscription.psubscribe('status.'+process_name);
+                        store.publish(process_name, 'status');
+                    }
+
                 });
             }else{
                 store.hkeys(self.instance_name, function(err, result){
-                    if(err) return logger.error(err);
-                    if(!result) return logger.info(self.instance_name+'is not exist');
-                    _.each(result, function(i, item){
-                        store.hget(self.instance_name, item, function(err, result){
-                            logger.info(item+':'+result);
+                    if(err){
+                        logger.error(err);
+                        process.exit();
+                    }else if(!result){
+                        logger.info(self.instance_name+'is not exist');
+                        process.exit();
+                    }else{
+                        async.each(result, function(item, callback){
+                            store.hget(self.instance_name, item, function(err, result){
+                                logger.info(item+':'+result);
+                                callback();
+                            });
+                        },function(err){
+                            process.exit(0);
                         });
-                    });
+                    }
+
                 });
             }
         }
