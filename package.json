@@ -1,0 +1,29 @@
+{
+  "name": "buys-crawler",
+  "version": "1.0.0",
+  "description": "node.js crawler",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://git.oschina.net/gjgj821/buys-crawler.git"
+  },
+  "keywords": [
+    "crawler"
+  ],
+  "author": "gaojie",
+  "license": "mit",
+  "dependencies": {
+    "async": "^0.9.0",
+    "bufferhelper": "^0.2.0",
+    "commander": "^2.7.1",
+    "iconv-lite": "^0.4.7",
+    "jquery": "^2.1.3",
+    "jsdom": "^4.0.5",
+    "redis": "^0.12.1",
+    "underscore": "^1.8.2",
+    "winston": "^0.9.0"
+  }
+}
