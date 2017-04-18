@@ -25,7 +25,7 @@ instance.prototype.init_queue = function(){
     /**
      * 通过配置文件添加初始化链接
      * [
-     *      [url, {type: index, spider: domain}]
+     *      {link: url, meta: {type: index, spider: domain}}
      * ]
      */
     for(var i in this.settings.start_url){

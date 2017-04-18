@@ -1,7 +1,12 @@
+.DS_STORE
+*.log
+*.log.*
+
+node_modules
+config/local.json
+dist
+app
+coverage
 .idea/
 cache/
 logs/
-node_modules/
-
-.DS_Store
-npm-debug.log

@@ -116,6 +116,11 @@ spider.on('link', function(link, meta){
     var self = this;
     this.running += 1;
     this.engine.logger.info('[ SPIDER ] link ', link, meta);
+    if(!meta['type']){
+        this.engine.logger.warn('[ SPIDER ] meta type is required ');
+        return
+    }
+
     this.engine.emit('scheduler', function(err, scheduler){
         scheduler.emit('push', link, meta, function(err){
             self.running -= 1;

@@ -98,6 +98,7 @@ var download = function(self, settings, link, meta, finish_callback){
         method: settings['method'],
         headers: headers
     };
+    var callback = false;
     self.engine.logger.silly('[ DOWNLOADER ] start download ', link);
     var request = http.request(options, function(response) {
         var meta = {};
@@ -150,19 +151,26 @@ var download = function(self, settings, link, meta, finish_callback){
                     }
                 }
             ],function(err, result){
+                if(callback) return;
                 finish_callback(err, result, response);
+                callback = true;
             });
         });
     });
     if(settings.timeout > 0){
         request.setTimeout(settings.timeout*1000,function(){
             self.engine.logger.error('[ DOWNLOADER ] request time out !');
+            if(callback) return;
             finish_callback(self.engine.error.DOWNLOADER_TIME_OUT);
+            callback = true;
         });
     }
 
     request.on('error', function(err) {
+        self.engine.logger.error('[ DOWNLOADER ] request error', err);
+        if(callback) return;
         finish_callback(err);
+        callback = true;
     });
     request.end();
 };
@@ -210,19 +218,21 @@ downloader.on('download', function(link, meta, queue_callback){
                         port: port
                     };
                     download(self, settings, link, meta, callbackDownload(self, function(err, milliseconds){
-                        queue_callback(err, milliseconds);
                         proxy_callback(err, milliseconds);
+                        callback(err, milliseconds);
                     }, spider_function, link));
-                    callback(null);
                 });
             }else{
-                download(self, settings, link, meta, callbackDownload(self, queue_callback, spider_function, link));
-                callback(null);
+                download(self, settings, link, meta, callbackDownload(self, function(err, milliseconds){
+                    callback(err, milliseconds);
+                }, spider_function, link));
             }
         }
-    ], function(err){
+    ], function(err, milliseconds){
         if(err){
             queue_callback(self.engine.error.DOWNLOADER_DEPEND_ERROR);
+        }else{
+            queue_callback(err, milliseconds);
         }
     });
 });

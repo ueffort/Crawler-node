@@ -20,6 +20,12 @@ var events = require('events');
 var async = require('async');
 var winston = require('winston');
 var _ = require('underscore')._;
+
+var downloader = require('./downloader');
+var pipeline = require('./pipeline');
+var proxy = require('./proxy');
+var scheduler = require('./scheduler');
+var spider = require('./spider');
 //全局错误列表
 //每个模块的第一位错误序号不同
 var error_list = {
@@ -57,9 +63,9 @@ var error_list = {
 var engine = function(crawler){
     events.EventEmitter.call(this);
     this.crawler = crawler;
+    this.logger = crawler.logger;
     this.instance_name = crawler.instance_name;
     this.inited = false;
-    var self = this;
     event_init(this);
 };
 util.inherits(engine, events.EventEmitter);
@@ -67,14 +73,13 @@ util.inherits(engine, events.EventEmitter);
 //外部触发初始化，保证能先进行事件监听
 engine.prototype.init = function(){
     if(this.inited) return ;
-    this.crawler.logger.silly('[ ENGINE ] init', this.instance_name);
     var self = this;
     async.series({
             instance: function(callback){
                 try{
                     var instance_settings = require('../'+self.instance_name+'/settings.js');
                     if (!instance_settings) callback('[ CONFIG ] instance settings is null', self.instance_name);
-                    self.settings = _.extend(instance_settings, self.crawler.settings);
+                    self.settings = self.assign(instance_settings, self.crawler.settings);
                     self.crawler.logger.info('[ CONFIG ]', self.settings);
                     winston.loggers.add(self.instance_name, self.settings.logger);
                     self.logger = winston.loggers.get(self.instance);
@@ -82,43 +87,24 @@ engine.prototype.init = function(){
                 }catch(e){
                     self.crawler.logger.error('[ CONFIG ] instance init error', self.instance_name);
                     callback(e);
+                    return
                 }
                 callback(null, instance);
             },
             scheduler: function(callback){
-                try{
-                    var scheduler = new (require('./scheduler.js'))(self, self.settings.scheduler ? self.settings.scheduler : {}, callback);
-                }catch(e){
-                    callback(e);
-                }
+                new scheduler(self, self.settings.scheduler ? self.settings.scheduler : {}, callback);
             },
             downloader: function(callback){
-                try{
-                    var downloader = new (require('./downloader.js'))(self, self.settings.downloader ? self.settings.downloader : {}, callback);
-                }catch(e){
-                    callback(e);
-                }
+                new downloader(self, self.settings.downloader ? self.settings.downloader : {}, callback);
             },
             proxy: function(callback){
-                try{
-                    var proxy = new (require('./proxy.js'))(self, self.settings.proxy ? self.settings.proxy : {}, callback);
-                }catch(e){
-                    callback(e);
-                }
+                new proxy(self, self.settings.proxy ? self.settings.proxy : {}, callback);
             },
             spider: function(callback){
-                try{
-                    var spider = new (require('./spider.js'))(self, self.settings.spider ? self.settings.spider : {}, callback);
-                }catch(e){
-                    callback(e);
-                }
+                new spider(self, self.settings.spider ? self.settings.spider : {}, callback);
             },
             pipeline: function(callback){
-                try{
-                    var pipeline = new (require('./pipeline.js'))(self, self.settings.pipeline ? self.settings.pipeline : {}, callback);
-                }catch(e){
-                    callback(e);
-                }
+                new pipeline(self, self.settings.pipeline ? self.settings.pipeline : {}, callback);
             }
         },
         function(err, results) {
@@ -130,11 +116,13 @@ engine.prototype.init = function(){
                     err = error_list.ENGINE_INIT_ERROR;
                     self.logger.error('[ ENGINE ] engine init error:', err);
                 }
+                self.emit('finish_init', err);
             }else{
                 self.service = results;
                 self.inited = true;
+                self.emit('finish_init');
+                self.emit('start_event');
             }
-            self.emit('finish_init', err);
         }
     );
 };
@@ -163,5 +151,20 @@ async.each(['instance', 'scheduler', 'downloader', 'proxy', 'spider', 'pipeline'
 }
 
 engine.prototype.error = error_list;
+engine.prototype.assign = function(obj, def){
+  if (obj == undefined) {
+    return def;
+  } else if (def == undefined) {
+    return obj;
+  }
+  if(obj && !(obj instanceof Object)){
+    return obj;
+  }
+  var c = def;
+  for (var i in obj) {
+    c[i] = this.assign(obj[i], def[i])
+  }
+  return c
+};
 
 module.exports = engine;

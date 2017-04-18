@@ -13,6 +13,8 @@ var async = require('async');
 var _ = require('underscore')._;
 var util = require('util');
 
+var engine = require('./engine');
+
 var logic = require('./tools/logic.js');
 
 try{
@@ -20,8 +22,8 @@ try{
     var settings = require('../settings.js');
     winston.loggers.add('core', JSON.parse(JSON.stringify(settings.logger)));
     var logger = winston.loggers.get('core');
-    var store = redis.createClient(settings.redis.port, settings.redis.host);
-    var subscription = redis.createClient(settings.redis.port, settings.redis.host);
+    var store = redis.createClient(settings.redis.port, settings.redis.host, settings.redis.option);
+    var subscription = redis.createClient(settings.redis.port, settings.redis.host, settings.redis.option);
 }catch(e){
     console.log(e);
     process.exit(1);
@@ -101,20 +103,23 @@ var core = function(instance_name){
     self.instance_name = instance_name;
     self.instance_process_list = instance_name+'.*';
     self.instance_time_list = instance_name+'|time';
-    self.start_time = new Date().getMilliseconds();
+    self.start_time = new Date().getTime();
     self.logger = logger;
     self.store = store;
+    self.subscription = subscription;
     self.lock = false;
     self.settings = settings;
     self.stats = 0;
     self.download = 0;
     self.pipe = 0;
-    self.engine = new (require('./engine.js'))(self);
+    self.engine = new engine(self);
     return {
         start:function(options){
             self.host_info = os.hostname+':'+process.pid;
             self.process_name = make_process(instance_name, null, self.host_info);
-            logic.event_init(self, options);
+            logger.info('[ CORE ] init', this.instance_name);
+            logger.info('[ CORE ] process name', self.process_name);
+            logic.init(self, options);
             //开始进程信息初始化
             store.exists(self.instance_name, function(error, result){
                 if(!result){
@@ -131,7 +136,7 @@ var core = function(instance_name){
                     if(self.lock) return store.publish(response_channel, 0);
                     self.engine.emit('scheduler',function(err, scheduler){
                         scheduler.emit('pause', function(err){
-                            if(!err) logic.change_process_stats(self, 2);
+                            if(!err) logic.change_process_stats(self, logic.PROCESS_STATS.PAUSE);
                             store.publish(response_channel, err ? 0 : 1);
                         });
                     });
@@ -139,7 +144,7 @@ var core = function(instance_name){
                     if(self.lock) return store.publish(response_channel, 0);
                     self.engine.emit('scheduler', function(err, scheduler){
                         scheduler.emit('resume', function(err){
-                            if(!err) logic.change_process_stats(self, 1);
+                            if(!err) logic.change_process_stats(self, logic.PROCESS_STATS.RUNNING);
                             store.publish(response_channel, err ? 0 : 1);
                         })
                     });
@@ -163,7 +168,7 @@ var core = function(instance_name){
                     self.lock = true;
                     self.engine.emit('scheduler',function(err, scheduler){
                         scheduler.emit('pause', function(err){
-                            if(!err) logic.change_process_stats(self, 2);
+                            if(!err) logic.change_process_stats(self, logic.PROCESS_STATS.PAUSE);
                             store.publish(response_channel, err ? 0 : 1);
                         });
                     });
@@ -175,7 +180,7 @@ var core = function(instance_name){
                     self.lock = false;
                     self.engine.emit('scheduler',function(err, scheduler){
                         scheduler.emit('resume', function(err){
-                            if(!err) logic.change_process_stats(self, 1);
+                            if(!err) logic.change_process_stats(self, logic.PROCESS_STATS.RUNNING);
                             store.publish(response_channel, err ? 0 : 1);
                         });
                     });
@@ -183,12 +188,24 @@ var core = function(instance_name){
                 }
             });
             subscription.subscribe(self.process_name);
-            logic.change_process_stats(self, 0);
+            logic.change_process_stats(self, logic.PROCESS_STATS.INIT);
             //保持redis的状态统计
             setInterval(function(){
                 if(self.stats == 1) store.hincrby(self.instance_name, 'current_run_seconds', 1);
                 store.expire(self.process_name, 10);
             },1000);
+            process.on('error',function(code,signal){
+                logger.error('[ CORE ] system error',code);
+                logic.exit(self, code);
+            });
+            process.on('uncaughtException', function(err){
+                logger.error('[ CORE ] system error',err);
+                logic.exit(self, 1);
+            });
+            process.on('exit', function(code){
+                logger.info('[ CORE ] system exit event', code);
+                if(self.stats != logic.PROCESS_STATS.EXIT) logic.exit(self)
+            });
         },
         stop:function(options){
             store.pubsub('CHANNELS', self.instance_process_list, function(err, result){

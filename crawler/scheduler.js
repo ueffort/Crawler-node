@@ -46,12 +46,18 @@ var scheduler = function(engine, settings, init_callback){
     //同时开启多少个下载队列
     this.queue = async.queue(function(task, callback){
         self.engine.logger.silly('[ SCHEDULER ] queue ',task);
-        self.downloader.emit('download', task.url, task.meta, function(err, milliseconds){
+        if(!task.meta.times) task.meta.times = 1;
+        self.downloader.emit('download', task.link, task.meta, function(err, milliseconds){
             if(err){
                 //todo 针对下载错误
+                if(task.meta.times < self.settings.retry || self.settings.retry < 0){
+                    task.meta.times += 1;
+                    self.queue.push(task);
+                }
             }
             if(download_time_limit > milliseconds){
                 setTimeout(callback, download_time_limit - milliseconds);
+                self.engine.logger.silly('[ SCHEDULER ] queue wait ', parseFloat(download_time_limit - milliseconds) / 1000);
             }else{
                 callback();
             }
@@ -66,13 +72,13 @@ var scheduler = function(engine, settings, init_callback){
         async.whilst(function(){
             return self.queue.length() == 0 && self.instance.length() > 0;
         }, function(callback){
-            var url_info = null;
+            var info = null;
             try{
-                url_info = self.instance.shift();
+                info = self.instance.shift();
             }catch(e){
                 self.engine.logger.debug(e);
             }
-            self.queue.push({url: url_info[0], meta: url_info[1]});
+            self.queue.push(info);
             callback(null);
         }, function(err) {
             if(self.instance.length()==0){
@@ -187,7 +193,7 @@ scheduler.on('push', function(link, meta, callback){
     this.engine.logger.info("[ SCHEDULER ] push ", link, meta);
     var err = null;
     try{
-        this.instance.push([link, meta]);
+        this.instance.push({ link, meta });
         this.queue.schedule();
     }catch(e){
         this.engine.logger.debug(e);

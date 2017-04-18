@@ -33,8 +33,8 @@ var proxy = function(engine, settings, init_callback){
         engine.logger.info('[ PROXY ] proxy is close');
         init_callback();
     }else{
-        this.key = settings.redis.key;
-        this.redis = redis.createClient(settings.redis.port, settings.redis.host);
+        this.key = settings.key;
+        this.redis = redis.createClient(settings.redis.port, settings.redis.host, settings.redis.option);
         this.proxy_list = [];
         this.able = true;
         var self = this;
@@ -47,7 +47,7 @@ util.inherits(proxy, events.EventEmitter);
 
 //更新代理列表数量
 function updateLength(self, callback){
-    self.redis.zcard(this.key, function(err, result){
+    self.redis.zcard(self.key, function(err, result){
         if(err){
             self.engine.logger.debug(err);
             self.able = false;
@@ -56,8 +56,8 @@ function updateLength(self, callback){
             //发送告警
             if(self.length < self.settings.waring_num)
                 self.engine.logger.warn('[ PROXY ] proxy num is ', self.length);
-            callback(err, result);
         }
+        callback(err, result);
     });
 }
 
@@ -94,11 +94,11 @@ function callbackProxy(self, object){
 function event_init(proxy){
 proxy.on('proxy', function(next_callback){
     var self = this;
-    var time_stamp = parseInt(new Date().getMilliseconds()/1000);
-    this.engine.logger.info('[ PROXY ] proxy');
+    var time_stamp = parseInt(new Date().getTime()/1000);
+    this.engine.logger.info('[ PROXY ] proxy list', self.proxy_list);
     async.waterfall([
         function(callback){
-            if(self.proxy_list.length) return callback(self.engine.error.PROXY_ENOUGH, self.proxy_list.pop());
+            if(self.proxy_list.length) return callback(self.engine.error.PROXY_ENOUGH);
             callback(null);
         },
         function(callback){
@@ -108,17 +108,20 @@ proxy.on('proxy', function(next_callback){
         function(result, callback){
             //每次调用后延后1分钟后可被调用,数值自我修正，多少秒无实际意义
             //保证不会在多进程中都获取到同一个代理
-            self.redis.zincrby(self.key, result[0], time_stamp+60-result[1]);
+            self.redis.zincrby(self.key, time_stamp+60-result[1], result[0]);
+            self.proxy_list.push(result[0]);
             updateLength(self, function(err, length){
-                callback(err, result[0]);
+                callback(err);
             });
         }
-    ], function(err, info){
+    ], function(err){
         if(err && err != self.engine.error.PROXY_ENOUGH){
             self.engine.logger.debug(e);
             self.engine.logger.error('[ PROXY ] proxy get error');
+            return next_callback(err);
         }
-        if(!info) return next_callback(err);
+        var info = self.proxy_list.pop();
+        self.engine.logger.silly('[ PROXY ] proxy ', info);
         var proxy = parseProxy(info);
         next_callback(null, proxy.host, proxy.port, callbackProxy(self, proxy));
     });
