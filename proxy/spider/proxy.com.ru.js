@@ -5,12 +5,12 @@
 
 var spider = function(factory){
     return {
-        download: function(link, meta){
+        download: function*(link, meta){
             return {
                 timeout: -1//超时设置为空
             };
         },
-        index: function(link , meta, $){
+        index: function*(link , meta, $){
             $('tr').each(function(i, tr){
                 var td_list = $('td', tr);
                 if(td_list.length == 5 && parseInt($(td_list[2]).text()) > 0){
@@ -28,7 +28,7 @@ var spider = function(factory){
                 }
             });
         },
-        list: function(link, meta, $){
+        list: function*(link, meta, $){
             $('tr').each(function(i, tr){
                 var td_list = $('td', tr);
                 if(td_list.length == 5 && parseInt($(td_list[2]).text()) > 0){

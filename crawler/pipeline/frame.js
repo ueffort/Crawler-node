@@ -1,11 +1,11 @@
 /**
  * pipe的基本结构，接收参数，返回处理函数
- * @param settings
+ * @param factory
  * @returns {Function}
  */
 
-var pipe = function(settings){
-    return function(info){
+var pipe = function(factory){
+    return function*(info){
         return true;
     };
 };

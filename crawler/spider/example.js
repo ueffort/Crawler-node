@@ -6,10 +6,10 @@
 
 var spider = function (factory) {
     return {
-        download: function(link, meta){
+        download: function*(link, meta){
             return {};
         },
-        index: function (link, meta, $) {
+        index: function*(link, meta, $) {
             factory.emit('link', link, meta);
             factory.emit('pipe', link, 'info');
         }

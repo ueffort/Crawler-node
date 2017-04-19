@@ -176,7 +176,7 @@ var download = function(self, settings, link, meta, finish_callback){
 };
 
 //完整下载完成callback函数
-var callbackDownload = function(self, queue_callback, spider_function, link){
+var callbackDownload = function(self, link, meta, queue_callback, spider_function){
     var start_date = new Date();
     return function(err, result, response){
         if(err){
@@ -185,9 +185,10 @@ var callbackDownload = function(self, queue_callback, spider_function, link){
                 err = self.engine.error.DOWNLOADER_DOWNLOAD_ERROR;
             }
         }
-        if(!err) spider_function(result, response);
-        queue_callback(err, new Date() - start_date);
-        self.emit('finish_download', err, link);
+        var milliseconds = new Date() - start_date;
+        if(!err) spider_function(result, response, milliseconds);
+        queue_callback(err, milliseconds);
+        self.emit('finish_download', err, link, meta);
     }
 };
 
@@ -206,26 +207,26 @@ downloader.on('download', function(link, meta, queue_callback){
         //获取蜘蛛处理函数，判断代理，开始下载
         function(settings, spider_function, callback){
             self.engine.logger.silly('[ DOWNLOADER ] spider-download settings', settings);
-            settings = _.extend(self.settings, settings);
-            if(settings.proxy && !self.proxy){
+            settings = _.defaults(settings, self.settings);
+            if(settings.proxy == true && !self.proxy){
                 self.engine.logger.warn('[ DOWNLOADER ] proxy is close! proxy settings is invalid!');
             }
-            if(settings.proxy && self.proxy){
+            if(settings.proxy == true && self.proxy){
                 self.proxy.emit('proxy', function(err, host, port, proxy_callback){
                     if(err) return callback(err);
                     settings.proxy = {
                         host: host,
                         port: port
                     };
-                    download(self, settings, link, meta, callbackDownload(self, function(err, milliseconds){
+                    download(self, settings, link, meta, callbackDownload(self, link, meta, function(err, milliseconds){
                         proxy_callback(err, milliseconds);
                         callback(err, milliseconds);
-                    }, spider_function, link));
+                    }, spider_function));
                 });
             }else{
-                download(self, settings, link, meta, callbackDownload(self, function(err, milliseconds){
+                download(self, settings, link, meta, callbackDownload(self, link, meta, function(err, milliseconds){
                     callback(err, milliseconds);
-                }, spider_function, link));
+                }, spider_function));
             }
         }
     ], function(err, milliseconds){

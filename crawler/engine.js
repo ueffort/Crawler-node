@@ -120,7 +120,9 @@ engine.prototype.init = function(){
             }else{
                 self.service = results;
                 self.inited = true;
+                self.logger.info('[ ENGINE ] engine init finish');
                 self.emit('finish_init');
+                self.logger.info('[ ENGINE ] engine start event');
                 self.emit('start_event');
             }
         }

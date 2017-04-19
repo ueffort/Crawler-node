@@ -65,17 +65,9 @@
   "author": "gaojie",
   "license": "mit",
   "dependencies": {
-//    "async": "^0.9.0",
-//    "bufferhelper": "^0.2.0",
-//    "commander": "^2.7.1",
-//    "iconv-lite": "^0.4.7",
-//    "jquery": "^2.1.3",
-//    "jsdom": "^4.0.5",
-//    "redis": "^0.12.1",
-//    "underscore": "^1.8.2",
-//    "winston": "^0.9.0"
     "async": "^2.3.0",
     "bufferhelper": "^0.2.1",
+    "co": "^4.6.0",
     "commander": "^2.9.0",
     "iconv-lite": "^0.4.15",
     "jquery": "^3.2.1",

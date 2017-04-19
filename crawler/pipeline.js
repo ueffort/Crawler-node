@@ -9,6 +9,7 @@
 var util = require('util');
 var events = require('events');
 var async = require('async');
+var co = require('co');
 var _ = require('underscore')._;
 
 var default_settings = {
@@ -23,20 +24,26 @@ var pipeline = function(engine, settings, init_callback){
     var self = this;
     var pipe_path = self.settings.path ? self.settings.path : self.engine.instance_name+'/pipe';
     event_init(this);
-    async.map(this.settings.pipe, function(pipe_name, callback){
-        var err = null;
-        try{
-            var pipe = require('../'+pipe_path+'/'+pipe_name+'.js')(self.engine.settings);
-        }catch(e){
-            self.engine.logger.debug(e);
-            self.engine.logger.error('[ PIPELINE ] pipe init error :', pipe_name);
-            err = self.engine.error.PIPELINE_PIPE_INIT_ERROR;
-        }
-        callback(err, {name: pipe_name, pipe: pipe});
-    },function(err, result){
-        self.pipe_list = result;
-        init_callback(err, self);
+    this.engine.on('finish_init', function(){
+        async.map(self.settings.pipe, function(pipe_name, callback){
+            var err = null;
+            try{
+                var pipe = require('../'+pipe_path+'/'+pipe_name+'.js')(self);
+            }catch(e){
+                self.engine.logger.debug(e);
+                self.engine.logger.error('[ PIPELINE ] pipe init error :', pipe_name);
+                err = self.engine.error.PIPELINE_PIPE_INIT_ERROR;
+            }
+            callback(err, {name: pipe_name, pipe: pipe});
+        },function(err, result){
+            if(err){
+                self.engine.logger.error("[ PIPELINE ] pipe load error ", err);
+            }else{
+                self.pipe_list = result;
+            }
+        });
     });
+    init_callback(null, self);
 };
 util.inherits(pipeline, events.EventEmitter);
 
@@ -46,21 +53,24 @@ pipeline.on('pipe', function(link, info, callback){
     this.engine.logger.info("[ PIPELINE ] pipe ", link, info);
     async.reduce(this.pipe_list, info, function(info, pipe_map, callback){
         self.engine.logger.silly("[ PIPELINE ] pipe", pipe_map.name);
-        var err = null;
         //依次传入管道中，如果返回false则结束后续管道处理
-        try{
-            info = pipe_map.pipe(info);
-            if(_.isNull(info) || info === false) err = self.engine.error.PIPELINE_PIPE_END;
-        }catch (e){
-            self.engine.logger.debug(e);
-            self.engine.logger.error('[ PIPELINE ] pipe exec error :', pipe_map.name);
-            err = self.engine.error.PIPELINE_PIPE_EXEC_ERROR;
-        }
-        callback(err, info);
+        co(pipe_map.pipe(info)).then((info)=>{
+            if(_.isNull(info) || info === false) throw self.engine.error.PIPELINE_PIPE_END;
+            callback(null, info);
+        }).catch((err)=>{
+            if(!_.isNumber(err)){
+                self.engine.logger.debug(e);
+                self.engine.logger.error('[ PIPELINE ] pipe exec error :', pipe_map.name);
+                err = self.engine.error.PIPELINE_PIPE_EXEC_ERROR;
+            }else{
+                self.engine.logger.silly("[ PIPELINE ] pipe filter", pipe_map.name);
+            }
+            callback(err);
+        });
     },function(err, result){
         if(err == self.engine.error.PIPELINE_PIPE_END) err = null;
         callback(err);
-        self.emit('finish_pipeline', err, link);
+        self.emit('finish_pipeline', err, link, info);
     });
 });
 }

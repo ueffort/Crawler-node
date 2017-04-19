@@ -33,6 +33,10 @@ var exit = function(self, return_stats, channel){
     self.stats = PROCESS_STATS.EXIT;
     self.store.del(self.process_name);
     self.subscription.unsubscribe(self.process_name);
+    if(!self.engine.inited) {
+        self.engine.logger.info('[ CORE ] process exit!');
+        process.exit(return_stats);
+    }
     self.engine.emit('scheduler', function(err, scheduler){
         if(err && channel) return self.store.publish(channel, 0);
         scheduler.emit('stop',function(err){
@@ -99,12 +103,13 @@ var init = function(self, option){
     async.waterfall([
         //监听初始化事件
         function(callback) {
+            self.engine.on('finish_init', function(err){
+               if(err){
+                   callback(err);
+               }
+            });
             self.engine.on('start_event', function(err){
-                if(err){
-                    callback(err);
-                }else{
-                    self.engine.emit('downloader', callback);
-                }
+                self.engine.emit('downloader', callback);
             });
             //绑定事件后初始化
             self.engine.init();
@@ -128,7 +133,7 @@ var init = function(self, option){
             self.engine.emit('pipeline', callback);
         },
         function(pipeline, callback){
-            pipeline.on('finish_pipeline', function(err, url){
+            pipeline.on('finish_pipeline', function(err, url, info){
                 if(!err){
                     async.each([[self.instance_name, 'pipe'],
                         [self.instance_name, 'current_pipe']
@@ -204,7 +209,7 @@ var init = function(self, option){
                         }
                     ], function(err) {
                         if (err == self.engine.error.SCHEDULER_NO_NEED_LOOP_QUEUE
-                            || self == self.engine.error.SCHEDULER_QUEUE_ERROR) {
+                            || err == self.engine.error.SCHEDULER_QUEUE_ERROR) {
                             self.engine.logger.info('[ CORE ] finish queue, no need loop crawler, exec exit');
                             exit(self);
                         } else if (err == self.engine.error.CORE_WAIT_INSTANCE_PROCESS) {
@@ -235,7 +240,7 @@ var init = function(self, option){
             err = self.engine.error.CORE_ERROR;
         }
         if(err){
-            self.engine.logger.error('[ CORE ] event init  has error(%s),exit', err);
+            self.engine.logger.error('[ CORE ] event init has error(%s),exit', err);
             exit(self,1);
         }
     });

@@ -15,6 +15,7 @@
 var util = require('util');
 var events = require('events');
 var async = require('async');
+var co = require('co');
 var _ = require('underscore')._;
 
 var default_settings = {
@@ -50,7 +51,7 @@ var scheduler = function(engine, settings, init_callback){
         self.downloader.emit('download', task.link, task.meta, function(err, milliseconds){
             if(err){
                 //todo 针对下载错误
-                if(task.meta.times < self.settings.retry || self.settings.retry < 0){
+                if(task.meta.times <= self.settings.retry || self.settings.retry < 0){
                     task.meta.times += 1;
                     self.queue.push(task);
                 }
@@ -64,27 +65,22 @@ var scheduler = function(engine, settings, init_callback){
         });
     }, this.settings.parallel);
     this.queue.empty = function(){
-        var length = self.instance.length();
-        if(length==0) return ;
         self.engine.logger.silly('[ SCHEDULER ] queue empty, get url from instance queue');
-        self.started = true;
-        //填充下载队列
-        async.whilst(function(){
-            return self.queue.length() == 0 && self.instance.length() > 0;
-        }, function(callback){
-            var info = null;
-            try{
-                info = self.instance.shift();
-            }catch(e){
-                self.engine.logger.debug(e);
-            }
-            self.queue.push(info);
-            callback(null);
-        }, function(err) {
-            if(self.instance.length()==0){
+        co(self.instance.length()).then((length)=>{
+            if(length==0){
                 self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait work end');
+                return ;
             }
+            self.engine.logger.silly('[ SCHEDULER ] queue empty, get url from instance queue');
+            return co(self.instance.shift()).then((info)=>{
+                //填充下载队列
+                self.started = true;
+                self.queue.push(info);
+            });
+        }).catch((err)=>{
+            self.engine.logger.debug(err);
         });
+
     };
     this.queue.drain = function(){
         async.waterfall([
@@ -96,12 +92,14 @@ var scheduler = function(engine, settings, init_callback){
                 spider.once('empty', callback);
             }
         ],function(err){
-            if(self.instance.length())
-                self.queue.schedule();
-            else{
-                self.engine.logger.info('[ SCHEDULER ] instance queue is empty, finish_queue!');
-                self.emit('finish_queue', null);
-            }
+            co(self.instance.length()).then((length)=>{
+                if(length){
+                    self.queue.schedule();
+                }else{
+                    self.engine.logger.info('[ SCHEDULER ] instance queue is empty, finish_queue!');
+                    self.emit('finish_queue', null);
+                }
+            });
         });
     };
     this.queue.schedule = function(){
@@ -110,9 +108,12 @@ var scheduler = function(engine, settings, init_callback){
             self.engine.logger.silly('[ SCHEDULER ] resume work queue');
         }
         if(this.length()==0) this.empty();
-        if(!self.instance.length() && !self.started){
-            self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait_queue!');
-            self.emit('wait_queue', null);
+        if(!self.started){
+            co(self.instance.length()).then((length)=>{
+                if(length) return ;
+                self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait_queue!');
+                self.emit('wait_queue', null);
+            })
         }
     };
     init_callback(null, this);
@@ -121,86 +122,92 @@ util.inherits(scheduler, events.EventEmitter);
 
 function event_init(scheduler){
 scheduler.on('init_queue', function(callback){
+    var self = this;
     //避免第一次执行实例，队列为空
-    if(!this.settings.loop && this.started)
-        return callback(this.engine.error.SCHEDULER_NO_NEED_LOOP_QUEUE);
-    this.engine.logger.info('[ SCHEDULER ] start init instance queue!');
-    var err = null;
-    var length = 0;
-    try{
-        if(!this.instance.length()) this.instance.init_queue();
-        length = this.instance.length();
-        this.engine.logger.silly('[ SCHEDULER ] instance init queue length ', length);
-    }catch(e){
-        this.engine.logger.debug(e);
-    }
-    if(!length) {
-        this.engine.logger.error('[ SCHEDULER ] instance has 0 queue length after init_queue!');
-        err = this.engine.error.SCHEDULER_QUEUE_ERROR;
-    }
-    if(!err){
-        this.queue.schedule();
-    }
-    callback(err, length);
+    if(!self.settings.loop && this.started)
+        return callback(self.engine.error.SCHEDULER_NO_NEED_LOOP_QUEUE);
+    self.engine.logger.info('[ SCHEDULER ] start init instance queue!');
+    var real_length = 0;
+    co(self.instance.length()).then((length)=>{
+        if(!length) return co(self.instance.init_queue()).then(()=>{
+            return co(self.instance.length());
+        });
+    }).then((length)=>{
+        self.engine.logger.silly('[ SCHEDULER ] instance init queue length ', length);
+        if(!length){
+            self.engine.logger.error('[ SCHEDULER ] instance has 0 queue length after init_queue!');
+            return this.engine.error.SCHEDULER_QUEUE_ERROR;
+        }
+        self.queue.schedule();
+        real_length = length;
+    }).catch((err)=>{
+        self.engine.logger.debug(err);
+        return err;
+    }).then((err)=>{
+        callback(err, real_length)
+    });
 });
 
 scheduler.on('stop',function(callback){
-    this.engine.logger.info("[ SCHEDULER ] stop");
-    this.queue.kill();
+    var self = this;
+    self.engine.logger.info("[ SCHEDULER ] stop");
+    self.queue.kill();
     callback(null);
 });
 
 scheduler.on('start',function(callback){
-    this.engine.logger.info("[ SCHEDULER ] start");
+    var self = this;
+    self.engine.logger.info("[ SCHEDULER ] start");
     var err = null;
-    if(!this.queue){
-        this.engine.logger.error('[ SCHEDULER ] queue is error!');
-        err = this.engine.error.SCHEDULER_START_ERROR;
+    if(!self.queue){
+        self.engine.logger.error('[ SCHEDULER ] queue is error!');
+        err = self.engine.error.SCHEDULER_START_ERROR;
     }else{
-        if (this.started) {
-            this.engine.logger.warn('[ SCHEDULER ] scheduler is running! not need start again!');
+        if (self.started) {
+            self.engine.logger.warn('[ SCHEDULER ] scheduler is running! not need start again!');
         }
-        this.queue.schedule();
+        self.queue.schedule();
     }
     callback(err);
 });
 
 scheduler.on('pause', function(callback){
-    this.engine.logger.info("[ SCHEDULER ] pause");
+    var self = this;
+    self.engine.logger.info("[ SCHEDULER ] pause");
     var err = null;
-    if(!this.started){
-        this.engine.logger.error('[ SCHEDULER ] scheduler not start, so can not pause');
-        err = this.engine.error.SCHEDULER_PAUSE_ERROR;
+    if(!self.started){
+        self.engine.logger.error('[ SCHEDULER ] scheduler not start, so can not pause');
+        err = self.engine.error.SCHEDULER_PAUSE_ERROR;
     }else{
-        this.queue.pause();
+        self.queue.pause();
     }
     callback(err);
 });
 
 scheduler.on('resume', function(callback){
-    this.engine.logger.info("[ SCHEDULER ] resume");
+    var self = this;
+    self.engine.logger.info("[ SCHEDULER ] resume");
     var err = null;
-    if(!this.queue.paused){
-        this.engine.logger.error('[ SCHEDULER ] queue is not paused, so not need resume');
-        err = this.engine.error.SCHEDULER_RESUME_ERROR;
+    if(!self.queue.paused){
+        self.engine.logger.error('[ SCHEDULER ] queue is not paused, so not need resume');
+        err = self.engine.error.SCHEDULER_RESUME_ERROR;
     }else{
-        this.queue.resume();
+        self.queue.resume();
     }
     callback(err);
 });
 
 scheduler.on('push', function(link, meta, callback){
-    this.engine.logger.info("[ SCHEDULER ] push ", link, meta);
-    var err = null;
-    try{
-        this.instance.push({ link, meta });
-        this.queue.schedule();
-    }catch(e){
-        this.engine.logger.debug(e);
-        this.engine.logger.error('[ SCHEDULER ] instance can not push link!');
-        err = this.engine.error.SCHEDULER_PUSH_ERROR;
-    }
-    callback(err);
+    var self = this;
+    self.engine.logger.info("[ SCHEDULER ] push ", link, meta);
+    co(self.instance.push({ link, meta })).then(()=>{
+        self.queue.schedule();
+        callback();
+    }).catch((err)=>{
+        self.engine.logger.debug(e);
+        self.engine.logger.error('[ SCHEDULER ] instance can not push link!');
+        callback(self.engine.error.SCHEDULER_PUSH_ERROR);
+    })
 });
 }
 

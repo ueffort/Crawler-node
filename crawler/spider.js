@@ -22,6 +22,7 @@ var util = require('util');
 var events = require('events');
 var async = require('async');
 var url =  require("url");
+var co = require('co');
 var _ = require('underscore')._;
 
 var default_settings = {
@@ -92,11 +93,22 @@ spider.on('spider', function(link, meta, callback){
         err = this.engine.error.SPIDER_TYPE_ERROR;
         return callback(err);
     }
-    callback(err, spider.download(link, meta), function(result, response){
+    co(spider.download(link, meta)).catch((err)=>{
+        this.engine.logger.debug(err);
+        this.engine.logger.error('[ SPIDER ] spider download init error:', spider_name);
+        callback(err);
+    }).then((setting)=>{
+      callback(err, setting, function(result, response, milliseconds){
         self.running += 1;
-        spider[meta['type']](link, meta, result, response);
-        self.running -= 1;
-        if(self.running == 0) self.emit('empty', err);
+        meta.duration = milliseconds;
+        co(spider[meta['type']](link, meta, result, response)).catch((err)=>{
+          return err;
+        }).then((err)=>{
+          self.running -= 1;
+          if(self.running == 0) self.emit('empty', err);
+        });
+
+      });
     });
 });
 
