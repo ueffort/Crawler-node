@@ -26,7 +26,7 @@ var proxy = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.engine = engine;
     this.settings = _.defaults(settings, default_settings);
-    engine.logger.silly('[ PROXY ] init ', this.settings);
+    engine.logger.info('[ PROXY ] init ', this.settings);
     event_init(this);
     this.able = false;
     if(_.isUndefined(this.settings.redis)) {
@@ -92,7 +92,7 @@ function callbackProxy(self, object){
             if(self.settings.download_times == object.error){
                 return self.redis.zrem(self.key, object.info);
             }else{
-                return self.redis.zadd(self.key, time_stamp + object.score/ self.settings.download_times, object.info);
+                return self.redis.zadd(self.key, time_stamp + object.score / self.settings.download_times, object.info);
             }
         }
 
@@ -114,7 +114,7 @@ proxy.on('proxy', function(next_callback){
         },
         function(result, callback){
             //保证不会在多进程中都获取到同一个代理
-            self.redis.zadd(self.key, 9999999999, result[0]);
+            self.redis.zincrby(self.key, 6000, result[0]);
             var info = parseProxy(result[0]);
             self.engine.logger.silly('[ PROXY ] proxy parse:', info);
             // self.proxy_list.push(info);
@@ -152,17 +152,17 @@ proxy.on('copy', function(name, callback){
     self.engine.logger.info('[ PROXY ] proxy copy ', name);
     self.redis.exists(name, function(err, result){
        if(result){
-           self.engine.logger.info('[ PROXY ] set %s exists, get length', name, result);
+           self.engine.logger.silly('[ PROXY ] set %s exists, get length', name, result);
            self.redis.scard(name, function(err, result){
-               self.engine.logger.info('[ PROXY ] set get length:', result);
+               self.engine.logger.silly('[ PROXY ] set get length:', result);
                callback(err, result);
            })
        }else{
-           self.engine.logger.info('[ PROXY ] set %s not exists, copy set', name);
+           self.engine.logger.silly('[ PROXY ] set %s not exists, copy set', name);
            self.redis.sunionstore(name, self.set_key, function(err, result){
-               self.engine.logger.info('[ PROXY ] copy set, get length');
+               self.engine.logger.silly('[ PROXY ] copy set, get length');
                self.redis.scard(name, function(err, result){
-                   self.engine.logger.info('[ PROXY ] set get length:', result);
+                   self.engine.logger.silly('[ PROXY ] set get length:', result);
                   callback(err, result);
                });
            });
@@ -175,14 +175,14 @@ proxy.on('get', function(name, callback){
         if(err){
             callback(err);
         }else if(!result){
-            self.engine.logger.info('[ PROXY ] set is empty');
+            self.engine.logger.silly('[ PROXY ] set is empty');
             self.redis.del(name, function(_, result){
-                self.engine.logger.info('[ PROXY ] set is delete');
+                self.engine.logger.silly('[ PROXY ] set is delete');
                 callback(err);
             })
         }else{
             var info = parseProxy(result);
-            self.engine.logger.info('[ PROXY ] get proxy:', info);
+            self.engine.logger.silly('[ PROXY ] get proxy:', info);
             callback(err, info);
         }
     });

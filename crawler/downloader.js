@@ -36,12 +36,15 @@ var downloader = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.engine = engine;
     this.settings = _.defaults(settings, default_settings);
-    engine.logger.silly('[ DOWNLOADER ] init ', this.settings);
+    engine.logger.info('[ DOWNLOADER ] init ', this.settings);
     var self = this;
     event_init(this);
     this.engine.on('finish_init', function(){
         self.engine.emit('proxy', function(err, proxy){
             if(proxy.able) self.proxy = proxy;
+        });
+        self.engine.emit('spider', function(err, spider){
+            self.spider = spider;
         });
     });
     init_callback(null, this);
@@ -159,7 +162,7 @@ var download = function(self, settings, link, meta, finish_callback){
     });
     if(settings.timeout > 0){
         request.setTimeout(settings.timeout*1000,function(){
-            self.engine.logger.error('[ DOWNLOADER ] request time out !');
+            self.engine.logger.debug('[ DOWNLOADER ] request time out !');
             if(callback) return;
             finish_callback(self.engine.error.DOWNLOADER_TIME_OUT);
             callback = true;
@@ -167,7 +170,7 @@ var download = function(self, settings, link, meta, finish_callback){
     }
 
     request.on('error', function(err) {
-        self.engine.logger.error('[ DOWNLOADER ] request error', err);
+        self.engine.logger.debug('[ DOWNLOADER ] request error', err);
         if(callback) return;
         finish_callback(err);
         callback = true;
@@ -199,15 +202,12 @@ downloader.on('download', function(link, meta, queue_callback){
     var self = this;
     async.waterfall([
         function(callback){
-            self.engine.emit('spider', callback);
-        },
-        function(spider, callback){
-            spider.emit('spider', link, meta, callback);
+            self.spider.emit('spider', link, meta, callback);
         },
         //获取蜘蛛处理函数，判断代理，开始下载
         function(settings, spider_function, callback){
-            self.engine.logger.silly('[ DOWNLOADER ] spider-download settings', settings);
             settings = _.defaults(settings, self.settings);
+            self.engine.logger.silly('[ DOWNLOADER ] spider-download settings', settings);
             if(settings.proxy == true && !self.proxy){
                 self.engine.logger.warn('[ DOWNLOADER ] proxy is close! proxy settings is invalid!');
             }

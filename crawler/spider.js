@@ -35,8 +35,17 @@ var spider = function(engine, settings, init_callback){
     this.settings = _.defaults(settings, default_settings);
     this.spider_list = {};
     this.running = 0;
-    engine.logger.silly('[ SPIDER ] init ', this.settings);
+    engine.logger.info('[ SPIDER ] init ', this.settings);
     event_init(this);
+    var self = this;
+    this.engine.on('finish_init', function(){
+        self.engine.emit('scheduler', function(err, scheduler){
+            self.scheduler = scheduler;
+        });
+        self.engine.emit('pipeline', function(err, pipeline){
+            self.pipeline = pipeline;
+        });
+    });
     init_callback(null, this);
 };
 util.inherits(spider, events.EventEmitter);
@@ -116,11 +125,9 @@ spider.on('pipe', function(link, info){
     var self = this;
     this.running += 1;
     this.engine.logger.info('[ SPIDER ] pipe ', info);
-    this.engine.emit('pipeline', function(err, pipeline){
-        pipeline.emit('pipe', link, info, function(err){
-            self.running -= 1;
-            if(self.running == 0) self.emit('empty', err);
-        });
+    this.pipeline.emit('pipe', link, info, function(err){
+        self.running -= 1;
+        if(self.running == 0) self.emit('empty', err);
     });
 });
 
@@ -132,12 +139,9 @@ spider.on('link', function(link, meta){
         this.engine.logger.warn('[ SPIDER ] meta type is required ');
         return
     }
-
-    this.engine.emit('scheduler', function(err, scheduler){
-        scheduler.emit('push', link, meta, function(err){
-            self.running -= 1;
-            if(self.running == 0) self.emit('empty', err);
-        });
+    this.scheduler.emit('push', link, meta, function(err){
+        self.running -= 1;
+        if(self.running == 0) self.emit('empty', err);
     });
 });
 }

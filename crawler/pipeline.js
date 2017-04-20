@@ -20,7 +20,7 @@ var default_settings = {
 var pipeline = function(engine, settings, init_callback){
     this.engine = engine;
     this.settings = _.defaults(settings, default_settings);
-    engine.logger.silly('[ PIPELINE ] init ', this.settings);
+    engine.logger.info('[ PIPELINE ] init ', this.settings);
     var self = this;
     var pipe_path = self.settings.path ? self.settings.path : self.engine.instance_name+'/pipe';
     event_init(this);

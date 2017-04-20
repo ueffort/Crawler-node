@@ -81,8 +81,8 @@ engine.prototype.init = function(){
                     if (!instance_settings) callback('[ CONFIG ] instance settings is null', self.instance_name);
                     self.settings = self.assign(instance_settings, self.crawler.settings);
                     self.crawler.logger.info('[ CONFIG ]', self.settings);
-                    winston.loggers.add(self.instance_name, self.settings.logger);
-                    self.logger = winston.loggers.get(self.instance);
+                    winston.loggers.add(self.instance_name, JSON.parse(JSON.stringify(self.settings.logger)));
+                    self.logger = winston.loggers.get(self.instance_name);
                     var instance = new (require('../'+self.instance_name+'/index.js'))(self, self.settings);
                 }catch(e){
                     self.crawler.logger.error('[ CONFIG ] instance init error', self.instance_name);
@@ -120,9 +120,9 @@ engine.prototype.init = function(){
             }else{
                 self.service = results;
                 self.inited = true;
-                self.logger.info('[ ENGINE ] engine init finish');
+                self.logger.silly('[ ENGINE ] engine init finish');
                 self.emit('finish_init');
-                self.logger.info('[ ENGINE ] engine start event');
+                self.logger.silly('[ ENGINE ] engine start event');
                 self.emit('start_event');
             }
         }

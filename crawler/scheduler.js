@@ -29,7 +29,7 @@ var scheduler = function(engine, settings, init_callback){
     this.started = false;
     this.engine = engine;
     this.settings = _.defaults(settings, default_settings);
-    engine.logger.silly('[ SCHEDULER ] init ', this.settings);
+    engine.logger.info('[ SCHEDULER ] init ', this.settings);
     var self = this;
     event_init(this);
     this.engine.on('finish_init', function(){
@@ -43,7 +43,7 @@ var scheduler = function(engine, settings, init_callback){
     if(!this.settings.parallel) this.settings.parallel = 1;
     //单个下载的时间限制
     var download_time_limit = this.settings.frequency ?
-        parseInt(60000 / this.settings.frequency / this.settings.parallel) : 0;
+        parseInt(60000 / this.settings.frequency) : 0;
     //同时开启多少个下载队列
     this.queue = async.queue(function(task, callback){
         self.engine.logger.silly('[ SCHEDULER ] queue ',task);

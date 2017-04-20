@@ -1,12 +1,13 @@
 module.exports={
     downloader:{
-        proxy: false
+        proxy: true
     },
     pipeline:{
         pipe: ['store']
     },
     scheduler:{
         loop: false, //是否自动循环抓取
+        frequency: false,//每分钟的下载频率限制，最高下载数限制
         retry: -1, //
     },
     //抓取起始列表
