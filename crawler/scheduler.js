@@ -27,6 +27,7 @@ var default_settings = {
 var scheduler = function(engine, settings, init_callback){
     events.EventEmitter.call(this);
     this.started = false;
+    this.waited = true;
     this.engine = engine;
     this.settings = _.defaults(settings, default_settings);
     engine.logger.info('[ SCHEDULER ] init ', this.settings);
@@ -38,6 +39,9 @@ var scheduler = function(engine, settings, init_callback){
         });
         self.engine.emit('instance', function(err, instance){
             self.instance = instance;
+        });
+        self.engine.emit('spider', function(err, spider){
+            self.spider = spider;
         });
     });
     if(!this.settings.parallel) this.settings.parallel = 1;
@@ -66,16 +70,24 @@ var scheduler = function(engine, settings, init_callback){
     }, this.settings.parallel);
     this.queue.empty = function(){
         self.engine.logger.silly('[ SCHEDULER ] queue empty, get url from instance queue');
+        self.waited = true;
         co(self.instance.length()).then((length)=>{
             if(length==0){
-                self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait work end');
+                if(!self.started){
+                    self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait_queue!');
+                    self.emit('wait_queue', null);
+                }else{
+                    self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait work end');
+                    self.waited = false;
+                    if(self.queue.idle()) self.queue.drain();
+                }
                 return ;
             }
-            self.engine.logger.silly('[ SCHEDULER ] queue empty, get url from instance queue');
             return co(self.instance.shift()).then((info)=>{
                 //填充下载队列
                 self.started = true;
                 self.queue.push(info);
+                self.waited = false;
             });
         }).catch((err)=>{
             self.engine.logger.debug(err);
@@ -83,13 +95,11 @@ var scheduler = function(engine, settings, init_callback){
 
     };
     this.queue.drain = function(){
+        if(self.waited) return ;
         async.waterfall([
             function(callback){
-                self.engine.emit('spider', callback);
-            },
-            function(spider, callback){
-                if(spider.running == 0) return callback();
-                spider.once('empty', callback);
+                if(self.spider.running == 0) return callback();
+                self.spider.once('empty', callback);
             }
         ],function(err){
             co(self.instance.length()).then((length)=>{
@@ -108,13 +118,6 @@ var scheduler = function(engine, settings, init_callback){
             self.engine.logger.silly('[ SCHEDULER ] resume work queue');
         }
         if(this.length()==0) this.empty();
-        if(!self.started){
-            co(self.instance.length()).then((length)=>{
-                if(length) return ;
-                self.engine.logger.info('[ SCHEDULER ] instance queue is empty, wait_queue!');
-                self.emit('wait_queue', null);
-            })
-        }
     };
     init_callback(null, this);
 };

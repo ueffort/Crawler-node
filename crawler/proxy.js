@@ -183,7 +183,9 @@ proxy.on('get', function(name, callback){
         }else{
             var info = parseProxy(result);
             self.engine.logger.silly('[ PROXY ] get proxy:', info);
-            callback(err, info);
+            self.redis.zrem(self.key, info.info, function(err, result){
+                callback(err, info);
+            });
         }
     });
 })

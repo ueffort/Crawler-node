@@ -1,6 +1,6 @@
 module.exports={
     downloader:{
-        proxy: true
+        proxy: false
     },
     pipeline:{
         pipe: ['store']

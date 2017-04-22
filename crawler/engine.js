@@ -159,7 +159,7 @@ engine.prototype.assign = function(obj, def){
   } else if (def == undefined) {
     return obj;
   }
-  if(obj && !(obj instanceof Object)){
+  if(!(obj instanceof Object)){
     return obj;
   }
   var c = def;
